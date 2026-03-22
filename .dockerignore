@@ -1,0 +1,37 @@
+# Binaries
+tokomoco
+*.exe
+
+# Database files (user mounts a volume)
+*.db
+*.db-shm
+*.db-wal
+
+# Test & dev files
+*.py
+*.sh
+requirements.txt
+integration_test.py
+test_*.py
+test_*.sh
+
+# Documentation (not needed at runtime)
+*.md
+docs/
+examples/
+
+# IDE / OS
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Keys
+privkey.bin
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Toko-Mo-Co</title>
+    <link rel="stylesheet" href="/static/styles.css?v=29">
+</head>
+<body>
+
+<div class="app-shell">
+
+    <!-- ── Sidebar ─────────────────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="sidebar-logo-icon">TMC</div>
+            <div class="sidebar-logo-text">
+                <span class="sidebar-logo-name">Toko-Mo-Co</span>
+                <span class="sidebar-logo-sub">Gateway</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Observability</div>
+
+            <a class="nav-item" href="/#feed">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <polyline points="1,11 4,6 7,9 10,3 13,7 15,5"/>
+                </svg>
+                Request Feed
+            </a>
+
+            <a class="nav-item" href="/#agents">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="1" y="1" width="6" height="6" rx="1"/>
+                    <rect x="9" y="1" width="6" height="6" rx="1"/>
+                    <rect x="1" y="9" width="6" height="6" rx="1"/>
+                    <rect x="9" y="9" width="6" height="6" rx="1"/>
+                </svg>
+                Agents
+            </a>
+
+            <a class="nav-item" href="/#sessions">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="1" y="2" width="14" height="3" rx="1"/>
+                    <rect x="1" y="7" width="14" height="3" rx="1"/>
+                    <rect x="1" y="12" width="10" height="3" rx="1"/>
+                </svg>
+                Sessions
+            </a>
+
+            <a class="nav-item" href="/#security">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1L2 4v4c0 4 2.5 6.5 6 7.5 3.5-1 6-3.5 6-7.5V4L8 1z"/>
+                    <path d="M6 8l2 2 3-3"/>
+                </svg>
+                Security
+            </a>
+
+            <div class="nav-section-label" style="margin-top:8px;">Control</div>
+
+            <a class="nav-item" href="/#rules">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 4h12M4 8h8M6 12h4"/>
+                </svg>
+                Rules
+            </a>
+
+            <a class="nav-item" style="opacity:0.45;pointer-events:none" title="Coming soon">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1v1M8 14v1M3.5 3.5l.7.7M11.8 11.8l.7.7M1 8h1M14 8h1M3.5 12.5l.7-.7M11.8 4.2l.7-.7"/>
+                    <circle cx="8" cy="8" r="3"/>
+                </svg>
+                Alerts
+                <span class="nav-badge">soon</span>
+            </a>
+
+            <div class="nav-section-label" style="margin-top:8px;">Config</div>
+
+            <a class="nav-item" href="#providers" data-section-link="providers">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2" y="2" width="5" height="5" rx="1"/>
+                    <rect x="9" y="2" width="5" height="5" rx="1"/>
+                    <rect x="5.5" y="9" width="5" height="5" rx="1"/>
+                </svg>
+                Providers
+            </a>
+
+            <a class="nav-item" href="#pricing" data-section-link="pricing">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1v14M5 4h5a2 2 0 0 1 0 4H4M6 8h5a2 2 0 0 1 0 4H4"/>
+                </svg>
+                Pricing
+            </a>
+
+            <a class="nav-item" href="#reliability" data-section-link="reliability">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 8a6 6 0 0 1 10.3-4.2M14 2v4h-4"/>
+                    <path d="M14 8a6 6 0 0 1-10.3 4.2M2 14v-4h4"/>
+                </svg>
+                Reliability
+            </a>
+
+            <a class="nav-item" href="#intelligence" data-section-link="intelligence">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="8" cy="8" r="6"/>
+                    <path d="M8 5v3l2 1.5"/>
+                    <circle cx="8" cy="8" r="1" fill="currentColor"/>
+                </svg>
+                Intelligence
+            </a>
+
+            <a class="nav-item" href="#security" data-section-link="security">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1L2 4v4c0 4 2.5 6.5 6 7.5 3.5-1 6-3.5 6-7.5V4L8 1z"/>
+                    <path d="M6 8l2 2 3-3"/>
+                </svg>
+                PII &amp; Redaction
+            </a>
+
+            <a class="nav-item" href="#auth" data-section-link="auth">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+                    <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+                </svg>
+                Auth &amp; Keys
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-pill">
+                <span class="status-dot live"></span>
+                <span>Proxy Active</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Main column ────────────────────────────────────────── -->
+    <div class="main-col">
+
+        <div class="topbar">
+            <span class="topbar-title">Settings</span>
+            <div class="topbar-actions">
+                <button class="btn btn-primary" onclick="saveSettings()" id="saveButton">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 2H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L12 2z"/>
+                        <path d="M10 2v3H6V2"/>
+                        <path d="M5 10h6"/>
+                        <path d="M5 13h6"/>
+                    </svg>
+                    Save Settings
+                </button>
+                <span id="saveStatus" class="settings-save-status"></span>
+            </div>
+        </div>
+
+        <div class="page-content">
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 AUTH & KEYS
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="auth" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Authentication &amp; API Keys</h2>
+                        <p class="settings-panel-desc">Require API keys for proxy endpoints. Keys are hashed (SHA-256) and never stored in plain text.</p>
+                    </div>
+                </div>
+
+                <div class="settings-panel-body">
+                    <div class="setting-item setting-item-toggle" style="margin-bottom:20px;">
+                        <div class="setting-toggle-row">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="authEnabled" onchange="toggleAuth(this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="setting-toggle-label">Require API Keys for Proxy Endpoints</span>
+                            <span class="badge badge-muted" id="authKeyCount" style="margin-left:8px;">0 keys</span>
+                        </div>
+                        <p class="setting-help">When enabled, all <code>/v1/chat/completions</code>, <code>/v1/messages</code>, and Gemini endpoints require a valid API key via <code>Authorization: Bearer tc_...</code> or <code>X-API-Key</code> header.</p>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <div class="settings-subsection">
+                        <div class="settings-subsection-header">
+                            <div>
+                                <h3 class="settings-subsection-title">API Keys</h3>
+                                <p class="settings-subsection-desc">Each key is shown only once at creation &mdash; store it securely</p>
+                            </div>
+                            <button class="btn btn-primary" onclick="openCreateKeyModal()">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="8" y1="2" x2="8" y2="14"/>
+                                    <line x1="2" y1="8" x2="14" y2="8"/>
+                                </svg>
+                                Create Key
+                            </button>
+                        </div>
+                        <div id="apiKeysList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 CUSTOM PROVIDERS
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="providers" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Custom Providers</h2>
+                        <p class="settings-panel-desc">Connect self-hosted or third-party LLM endpoints (Ollama, vLLM, DeepSeek, etc.)</p>
+                    </div>
+                    <span class="badge badge-muted" id="providerCountBadge">0 providers</span>
+                </div>
+
+                <div class="settings-panel-body">
+                    <div class="settings-subsection-header">
+                        <div>
+                            <h3 class="settings-subsection-title">Configured Providers</h3>
+                            <p class="settings-subsection-desc">Route requests by using <code>provider-name/model</code> as the model field in your API calls</p>
+                        </div>
+                        <button class="btn btn-primary" onclick="openProviderEditor()">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="8" y1="2" x2="8" y2="14"/>
+                                <line x1="2" y1="8" x2="14" y2="8"/>
+                            </svg>
+                            Add Provider
+                        </button>
+                    </div>
+                    <div id="customProvidersList"></div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 MODEL PRICING
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="pricing" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Model Pricing</h2>
+                        <p class="settings-panel-desc">Per-model cost rates for accurate spend tracking</p>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <span class="badge badge-muted" id="pricingStaleBadge" style="display:none;"></span>
+                        <span class="badge badge-muted" id="pricingUnknownBadge" style="display:none;"></span>
+                    </div>
+                </div>
+
+                <div class="settings-panel-body">
+                    <!-- Provider tabs -->
+                    <div class="pricing-provider-tabs" id="pricingProviderTabs"></div>
+
+                    <!-- Pricing table -->
+                    <div class="pricing-table" id="pricingTable"></div>
+
+                    <!-- Unknown models section -->
+                    <div id="pricingUnknownSection" style="display:none;"></div>
+
+                    <!-- Actions -->
+                    <div style="display:flex;gap:8px;margin-top:16px;">
+                        <button class="btn btn-ghost" onclick="resetPricingDefaults()">Reset to Defaults</button>
+                        <button class="btn btn-primary" onclick="openPricingEditor()">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="8" y1="2" x2="8" y2="14"/>
+                                <line x1="2" y1="8" x2="14" y2="8"/>
+                            </svg>
+                            Add Pricing
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 RELIABILITY (Retry + Fallback + Loop Detection)
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="reliability" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Reliability</h2>
+                        <p class="settings-panel-desc">Configure automatic retries, provider fallbacks, and loop detection to keep your agents running smoothly.</p>
+                    </div>
+                </div>
+
+                <div class="settings-panel-body">
+                    <!-- ── Retry sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Retry Configuration</h3>
+                            <p class="settings-group-desc">Automatic retry on transient errors (429, 503, timeouts)</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="retryEnabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Enable Automatic Retries</span>
+                                </div>
+                                <p class="setting-help">Automatically retry requests that fail due to rate limits or server errors</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Max Attempts</span>
+                                    <input type="number" id="retryMaxAttempts" min="1" max="10" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Maximum number of retry attempts (1-10)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Initial Delay</span>
+                                    <input type="number" id="retryInitialDelay" min="100" max="5000" step="100" class="setting-input-sm">
+                                    <span class="setting-unit">ms</span>
+                                </label>
+                                <p class="setting-help">First retry delay (100-5000ms)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Max Delay</span>
+                                    <input type="number" id="retryMaxDelay" min="1000" max="60000" step="1000" class="setting-input-sm">
+                                    <span class="setting-unit">ms</span>
+                                </label>
+                                <p class="setting-help">Maximum retry delay (1000-60000ms)</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- ── Fallback sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Provider Fallback</h3>
+                            <p class="settings-group-desc">Automatically switch to alternate providers when the primary fails</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="fallbackEnabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Enable Fallback</span>
+                                </div>
+                                <p class="setting-help">Automatically fallback to alternative providers after retries are exhausted</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-field-label">Fallback Strategy</label>
+                                <select id="fallbackStrategy" class="setting-select" data-custom-dropdown>
+                                    <option value="same_tier">Same Tier</option>
+                                    <option value="cheaper">Cheaper Only</option>
+                                    <option value="any">Any Available</option>
+                                </select>
+                                <p class="setting-help">
+                                    <strong>Same Tier</strong> &mdash; fallback to models in the same cost tier.
+                                    <strong>Cheaper</strong> &mdash; only fall back to cheaper models.
+                                    <strong>Any</strong> &mdash; use any available model.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="settings-subsection" style="margin-top:20px;">
+                            <div class="settings-subsection-header">
+                                <div>
+                                    <h3 class="settings-subsection-title">Default Fallback Mappings</h3>
+                                    <p class="settings-subsection-desc">These apply to all agents unless they have custom configurations</p>
+                                </div>
+                                <button class="btn btn-primary" onclick="openFallbackEditor()">
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="8" y1="2" x2="8" y2="14"/>
+                                        <line x1="2" y1="8" x2="14" y2="8"/>
+                                    </svg>
+                                    Add Mapping
+                                </button>
+                            </div>
+                            <div id="fallbackConfigsList"></div>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- ── Loop Detection sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Loop Detection</h3>
+                            <p class="settings-group-desc">Detect and flag repetitive request patterns to prevent runaway agents</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Threshold</span>
+                                    <input type="number" id="loopThreshold" min="1" max="20" class="setting-input-sm">
+                                    <span class="setting-unit">similar requests</span>
+                                </label>
+                                <p class="setting-help">Number of similar requests before flagging (1-20)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Similarity</span>
+                                    <input type="number" id="loopSimilarity" min="50" max="100" class="setting-input-sm">
+                                    <span class="setting-unit">%</span>
+                                </label>
+                                <p class="setting-help">Match threshold percentage (50-100%)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Time Window</span>
+                                    <input type="number" id="loopWindow" min="1" max="60" class="setting-input-sm">
+                                    <span class="setting-unit">minutes</span>
+                                </label>
+                                <p class="setting-help">Rolling window for detection (1-60 minutes)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-field-label">Injection Mode</label>
+                                <select id="injectionMode" class="setting-select" data-custom-dropdown>
+                                    <option value="metadata">Metadata only</option>
+                                    <option value="content">Content injection</option>
+                                    <option value="hybrid">Hybrid (auto-escalate)</option>
+                                </select>
+                                <p class="setting-help">How loop warnings are surfaced to the calling agent</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Content Threshold</span>
+                                    <input type="number" id="contentThreshold" min="0" step="0.01" class="setting-input-sm">
+                                    <span class="setting-unit">USD</span>
+                                </label>
+                                <p class="setting-help">Session cost to trigger content injection in hybrid mode</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 INTELLIGENCE (Cache + Semantic Cache + Memory)
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="intelligence" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Intelligence</h2>
+                        <p class="settings-panel-desc">Response caching, semantic similarity matching, and agent memory for smarter, faster, and stateful AI interactions.</p>
+                    </div>
+                </div>
+
+                <div class="settings-panel-body">
+                    <!-- ── Exact Cache sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Response Cache</h3>
+                            <p class="settings-group-desc">Cache identical non-streaming responses to eliminate duplicate API calls. Zero latency, zero cost for cache hits.</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="cacheEnabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Enable Response Cache</span>
+                                </div>
+                                <p class="setting-help">Clients can bypass per-request with <code>X-Cache-Control: no-cache</code>.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Max Entries</span>
+                                    <input type="number" id="cacheMaxEntries" min="10" max="100000" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Maximum cached responses in memory (10-100,000)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>TTL</span>
+                                    <input type="number" id="cacheTTLMinutes" min="1" max="10080" class="setting-input-sm">
+                                    <span class="setting-unit">minutes</span>
+                                </label>
+                                <p class="setting-help">Time-to-live for cached entries (1-10,080 min)</p>
+                            </div>
+
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="cacheOnlyTemp0">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Only Cache temperature=0 Requests</span>
+                                </div>
+                                <p class="setting-help">When enabled, only deterministic requests (temperature=0) are cached.</p>
+                            </div>
+                        </div>
+
+                        <div class="settings-stats-bar">
+                            <button class="btn btn-ghost" onclick="flushCache()">Flush Cache</button>
+                            <span id="cacheStatsEntries" class="settings-stat-item">&mdash; entries</span>
+                            <span id="cacheStatsHitRate" class="settings-stat-item">&mdash; hit rate</span>
+                            <span id="cacheStatsSaved" class="settings-stat-item" style="color:var(--green);">$0.0000 saved</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- ── Semantic Cache sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Semantic Cache</h3>
+                            <p class="settings-group-desc">Match semantically similar requests using embeddings. Returns cached responses for questions with the same meaning, even if worded differently.</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="semanticCacheEnabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Enable Semantic Cache</span>
+                                </div>
+                                <p class="setting-help">Requires an embedding API key (OpenAI). Falls back to <code>OPENAI_API_KEY</code> env var if not set.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Embedding Provider</span>
+                                    <select id="embeddingProvider" class="setting-input-sm">
+                                        <option value="openai">OpenAI</option>
+                                    </select>
+                                </label>
+                                <p class="setting-help">Provider for generating embeddings. Currently supports OpenAI.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Embedding Model</span>
+                                    <select id="embeddingModel" class="setting-input-sm">
+                                        <option value="text-embedding-3-small">text-embedding-3-small (1536d, cheapest)</option>
+                                        <option value="text-embedding-3-large">text-embedding-3-large (3072d, best)</option>
+                                        <option value="text-embedding-ada-002">text-embedding-ada-002 (1536d, legacy)</option>
+                                    </select>
+                                </label>
+                                <p class="setting-help">Model used for generating embedding vectors. Smaller models are faster and cheaper.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Embedding API Key</span>
+                                    <input type="password" id="embeddingAPIKey" class="setting-input-sm" placeholder="sk-..." autocomplete="off">
+                                </label>
+                                <p class="setting-help">OpenAI API key for embeddings. <strong>Required</strong> for semantic cache and memory. Falls back to <code>OPENAI_API_KEY</code> env var.</p>
+                                <p class="setting-help" id="embeddingKeyStatus" style="color:var(--red);">⚠ Not configured — semantic cache inactive</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Similarity Threshold</span>
+                                    <input type="number" id="semanticCacheThreshold" min="0.5" max="1.0" step="0.01" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Cosine similarity required for a cache hit (0.50-1.00). Higher = stricter matching.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Max Vectors</span>
+                                    <input type="number" id="semanticCacheMaxVectors" min="100" max="500000" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Maximum stored embedding vectors (100-500,000)</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- ── Memory Layer sub-section ── -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3 class="settings-group-title">Agent Memory</h3>
+                            <p class="settings-group-desc">Automatically extract facts from conversations and recall relevant context in future requests. Makes agents stateful across sessions, transparently at the proxy level.</p>
+                        </div>
+
+                        <div class="settings-stats-bar">
+                            <button class="btn btn-ghost" onclick="flushMemories()">Flush Memories</button>
+                            <span id="memoryStatsEntries" class="settings-stat-item">&mdash; memories</span>
+                            <span id="memoryStatsHitRate" class="settings-stat-item">&mdash; hit rate</span>
+                            <span id="memoryStatsAgents" class="settings-stat-item">0 agents</span>
+                            <span id="memoryStatsStale" class="settings-stat-item" style="color:var(--yellow);">0 stale</span>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="setting-item setting-item-toggle">
+                                <div class="setting-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="memoryEnabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-toggle-label">Enable Agent Memory</span>
+                                </div>
+                                <p class="setting-help">Requires an embedding API key. Facts are extracted using heuristic patterns (zero additional LLM cost).</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Similarity Threshold</span>
+                                    <input type="number" id="memoryThreshold" min="0.3" max="1.0" step="0.01" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Minimum similarity to retrieve a memory (0.30-1.00). Lower than cache &mdash; memories are loosely related.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Max Memories</span>
+                                    <input type="number" id="memoryMaxEntries" min="100" max="500000" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Maximum stored memory facts (100-500,000). Smart eviction when full.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Per-Request Limit</span>
+                                    <input type="number" id="memoryMaxResults" min="1" max="20" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Max memories injected per request (1-20)</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Recency Decay (Lambda)</span>
+                                    <input type="number" id="memoryRecencyLambda" min="0" max="0.1" step="0.001" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Controls how much recent memories are preferred over older ones. Higher = stronger recency bias (0&ndash;0.1). Default: 0.01</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Conflict Threshold</span>
+                                    <input type="number" id="memoryConflictThreshold" min="0.5" max="0.99" step="0.01" class="setting-input-sm">
+                                </label>
+                                <p class="setting-help">Similarity threshold for detecting conflicting facts (0.50&ndash;0.99). Facts above this are candidates for replacement when newer info is found.</p>
+                            </div>
+
+                            <div class="setting-item">
+                                <label class="setting-label-inline">
+                                    <span>Memory TTL</span>
+                                    <input type="number" id="memoryTTLDays" min="7" max="365" class="setting-input-sm">
+                                    <span class="setting-unit">days</span>
+                                </label>
+                                <p class="setting-help">Memories not accessed in this period become eviction candidates (7&ndash;365 days). Frequently used memories are protected.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 SECURITY (PII Redaction)
+                 ═══════════════════════════════════════════════════════════ -->
+            <div class="settings-panel" data-section="security" style="display:none;">
+                <div class="settings-panel-header">
+                    <div class="settings-panel-header-text">
+                        <h2 class="settings-panel-title">Security</h2>
+                        <p class="settings-panel-desc">PII redaction and data protection for outbound requests. Detect and redact personally identifiable information before it reaches the LLM provider.</p>
+                    </div>
+                </div>
+
+                <div class="settings-panel-body">
+                    <div class="settings-grid">
+                        <div class="setting-item setting-item-toggle">
+                            <div class="setting-toggle-row">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="piiEnabled">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="setting-toggle-label">Enable PII Redaction</span>
+                            </div>
+                            <p class="setting-help">When enabled, selected PII patterns and secrets are detected and redacted from request content before sending to the provider.</p>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">Redaction Mode</label>
+                            <select id="piiMode" class="setting-select" data-custom-dropdown>
+                                <option value="redact">Redact &mdash; [REDACTED_EMAIL]</option>
+                                <option value="hash">Hash &mdash; [SHA:a1b2c3d4]</option>
+                                <option value="placeholder">Placeholder &mdash; user@example.com</option>
+                            </select>
+                            <p class="setting-help"><strong>Redact:</strong> replaces with type tag. <strong>Hash:</strong> SHA-256 prefix for correlation. <strong>Placeholder:</strong> realistic fake value to preserve prompt structure.</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- PII Patterns -->
+                    <div class="settings-subsection">
+                        <div class="pattern-section-header">
+                            <div class="pattern-section-left">
+                                <span class="pattern-section-title">PII Patterns</span>
+                                <span class="pattern-counter" id="piiActiveCount">0 / 0</span>
+                            </div>
+                            <div class="pattern-bulk-actions">
+                                <button type="button" class="pattern-bulk-btn" onclick="selectAllPII(true)">Enable All</button>
+                                <button type="button" class="pattern-bulk-btn" onclick="selectAllPII(false)">Disable All</button>
+                            </div>
+                        </div>
+                        <div class="pattern-card-grid" id="piiPatternsGrid"></div>
+                    </div>
+
+                    <!-- Secret Patterns -->
+                    <div class="settings-subsection" style="margin-top:20px;">
+                        <div class="pattern-section-header">
+                            <div class="pattern-section-left">
+                                <span class="pattern-section-title">Secret Patterns</span>
+                                <span class="pattern-counter" id="secretActiveCount">0 / 0</span>
+                            </div>
+                            <div class="pattern-bulk-actions">
+                                <button type="button" class="pattern-bulk-btn" onclick="selectAllSecrets(true)">Enable All</button>
+                                <button type="button" class="pattern-bulk-btn" onclick="selectAllSecrets(false)">Disable All</button>
+                            </div>
+                        </div>
+                        <div class="pattern-card-grid" id="secretPatternsGrid"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- Provider Editor Modal -->
+<div id="providerEditorOverlay" class="modal-overlay" style="display:none;" onclick="closeProviderEditor()"></div>
+<div id="providerEditorModal" class="modal-panel" style="display:none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title" id="providerEditorTitle">Add Custom Provider</h3>
+        <button class="modal-panel-close" onclick="closeProviderEditor()">&times;</button>
+    </div>
+    <div class="modal-panel-body">
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Provider Name</label>
+            <input type="text" id="providerName" class="form-input" placeholder="e.g. ollama, deepseek, local-vllm" style="width:100%;">
+            <p class="setting-help">Lowercase, alphanumeric + hyphens. Used as model prefix: <code>name/model-name</code></p>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Display Name</label>
+            <input type="text" id="providerDisplayName" class="form-input" placeholder="e.g. Ollama (Local)" style="width:100%;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Base URL</label>
+            <input type="text" id="providerBaseURL" class="form-input" placeholder="e.g. http://localhost:11434" style="width:100%;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">API Format</label>
+            <select id="providerAPIFormat" class="form-input" style="width:100%;">
+                <option value="openai">OpenAI-compatible (most providers)</option>
+                <option value="anthropic">Anthropic-compatible</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">API Path</label>
+            <input type="text" id="providerAPIPath" class="form-input" value="/v1/chat/completions" style="width:100%;">
+            <p class="setting-help">Path appended to base URL. Default: <code>/v1/chat/completions</code></p>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">API Key (optional)</label>
+            <input type="password" id="providerAuthKey" class="form-input" placeholder="sk-..." style="width:100%;">
+            <p class="setting-help">Stored on proxy. Leave blank for no auth (e.g., local Ollama). Or use env var below.</p>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">API Key Env Var (optional)</label>
+            <input type="text" id="providerAuthEnvVar" class="form-input" placeholder="e.g. DEEPSEEK_API_KEY" style="width:100%;">
+            <p class="setting-help">Environment variable name. Takes precedence over stored key above.</p>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Model Names (optional, one per line)</label>
+            <textarea id="providerModels" class="form-input" rows="3" placeholder="llama3.2&#10;codestral&#10;mistral-7b" style="width:100%;font-family:var(--font-mono);resize:vertical;"></textarea>
+            <p class="setting-help">Known models for dropdown menus. You can always use any model name in API calls.</p>
+        </div>
+    </div>
+    <div class="modal-panel-footer" style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-ghost" onclick="testProviderConnection()" id="testProviderBtn">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 3l-8 8M13 3h-5M13 3v5"/>
+            </svg>
+            Test Connection
+        </button>
+        <span id="testProviderResult" style="font-size:12px;flex:1;"></span>
+        <button class="btn btn-ghost" onclick="closeProviderEditor()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveProvider()">Save</button>
+    </div>
+</div>
+
+<!-- Fallback Editor Modal -->
+<div id="fallbackEditorOverlay" class="modal-overlay" style="display: none;" onclick="closeFallbackEditor()"></div>
+<div id="fallbackEditorModal" class="modal-panel" style="display: none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title" id="editorTitle">Configure Fallback</h3>
+        <button class="modal-panel-close" onclick="closeFallbackEditor()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="3" x2="13" y2="13"/>
+                <line x1="13" y1="3" x2="3" y2="13"/>
+            </svg>
+        </button>
+    </div>
+    <div class="modal-panel-body">
+        <div class="form-group">
+            <label class="form-label">Source Provider</label>
+            <select id="editorSourceProvider" data-custom-dropdown onchange="updateSourceModelOptions()">
+                <option value="">Select provider...</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Source Model</label>
+            <select id="editorSourceModel" data-custom-dropdown>
+                <option value="">Select model...</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Fallback Chain (priority order)</label>
+            <div id="fallbackChainEditor" class="fallback-chain-editor">
+                <!-- Populated dynamically -->
+            </div>
+            <button class="btn btn-ghost" style="margin-top: 12px;" onclick="addFallbackOption()">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="2" x2="8" y2="14"/>
+                    <line x1="2" y1="8" x2="14" y2="8"/>
+                </svg>
+                Add Fallback Option
+            </button>
+        </div>
+
+        <div class="form-group">
+            <div class="setting-toggle-row">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="editorEnabled" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="setting-toggle-label">Enabled</span>
+            </div>
+        </div>
+    </div>
+    <div class="modal-panel-footer">
+        <button class="btn btn-ghost" onclick="closeFallbackEditor()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveFallbackConfig()">Save</button>
+    </div>
+</div>
+
+<!-- Request Log Modal -->
+<div id="requestLogOverlay" class="modal-overlay" style="display: none;" onclick="closeRequestLog()"></div>
+<div id="requestLogModal" class="modal-panel modal-panel-wide" style="display: none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title" id="requestLogTitle">Request Log</h3>
+        <button class="modal-panel-close" onclick="closeRequestLog()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="3" x2="13" y2="13"/>
+                <line x1="13" y1="3" x2="3" y2="13"/>
+            </svg>
+        </button>
+    </div>
+    <div class="modal-panel-body" id="requestLogBody">
+        <!-- Populated dynamically by settings.js -->
+    </div>
+    <div class="modal-panel-footer">
+        <span id="requestLogPagination" class="request-log-pagination">0 results</span>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-ghost" id="requestLogPrev" onclick="requestLogPage(-1)" disabled>Previous</button>
+            <button class="btn btn-ghost" id="requestLogNext" onclick="requestLogPage(1)" disabled>Next</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create Key Modal -->
+<div id="createKeyOverlay" class="modal-overlay" style="display: none;" onclick="closeCreateKeyModal()"></div>
+<div id="createKeyModal" class="modal-panel" style="display: none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title">Create API Key</h3>
+        <button class="modal-panel-close" onclick="closeCreateKeyModal()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="3" x2="13" y2="13"/>
+                <line x1="13" y1="3" x2="3" y2="13"/>
+            </svg>
+        </button>
+    </div>
+    <div class="modal-panel-body">
+        <div class="form-group">
+            <label class="form-label">Key Name</label>
+            <input type="text" id="newKeyName" class="form-input" placeholder="e.g. Production Agent, Dev Testing..." style="width:100%;">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Scopes</label>
+            <select id="newKeyScopes" data-custom-dropdown>
+                <option value="proxy,dashboard">Full Access (proxy + dashboard)</option>
+                <option value="proxy">Proxy Only</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Expiration</label>
+            <select id="newKeyExpiry" data-custom-dropdown>
+                <option value="0">Never expires</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="180">180 days</option>
+                <option value="365">1 year</option>
+            </select>
+        </div>
+    </div>
+    <div class="modal-panel-footer">
+        <button class="btn btn-ghost" onclick="closeCreateKeyModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createAPIKey()">Create Key</button>
+    </div>
+</div>
+
+<!-- Key Reveal Modal (shown once after creation) -->
+<div id="keyRevealOverlay" class="modal-overlay" style="display: none;"></div>
+<div id="keyRevealModal" class="modal-panel" style="display: none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title">API Key Created</h3>
+    </div>
+    <div class="modal-panel-body">
+        <div style="background:var(--bg-canvas);border:1px solid var(--accent-border);border-radius:var(--radius-md);padding:16px;margin-bottom:16px;">
+            <p style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:8px;">Your API Key</p>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <code id="revealedKey" style="flex:1;font-size:12px;font-family:var(--font-mono);color:var(--text-primary);word-break:break-all;line-height:1.5;user-select:all;"></code>
+                <button class="btn btn-ghost btn-sm" onclick="copyRevealedKey()" id="copyKeyBtn" style="flex-shrink:0;">Copy</button>
+            </div>
+        </div>
+        <div style="background:var(--yellow-subtle);border:1px solid rgba(210,153,34,0.3);border-radius:var(--radius-md);padding:12px;">
+            <p style="font-size:12px;color:var(--yellow);font-weight:600;margin-bottom:4px;">Save this key now</p>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0;">This key will not be shown again. Store it in a secure location like a secrets manager or environment variable.</p>
+        </div>
+    </div>
+    <div class="modal-panel-footer">
+        <button class="btn btn-primary" onclick="closeKeyRevealModal()">I've Saved My Key</button>
+    </div>
+</div>
+
+<!-- Pricing Editor Modal -->
+<div id="pricingEditorOverlay" class="modal-overlay" style="display: none;" onclick="closePricingEditor()"></div>
+<div id="pricingEditorModal" class="modal-panel" style="display: none;">
+    <div class="modal-panel-header">
+        <h3 class="modal-panel-title" id="pricingEditorTitle">Add Model Pricing</h3>
+        <button class="modal-panel-close" onclick="closePricingEditor()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="3" x2="13" y2="13"/>
+                <line x1="13" y1="3" x2="3" y2="13"/>
+            </svg>
+        </button>
+    </div>
+    <div class="modal-panel-body">
+        <div class="form-group">
+            <label class="form-label">Model Prefix</label>
+            <input type="text" id="pricingModelPrefix" class="form-input" placeholder="e.g. gpt-4o, claude-sonnet-4-5" style="width:100%;font-family:var(--font-mono);">
+            <p class="setting-help" style="margin-top:4px;">Prefix-matched: <code>gpt-4o</code> matches <code>gpt-4o-2024-11-20</code></p>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Provider</label>
+            <select id="pricingProvider" data-custom-dropdown>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google</option>
+                <option value="other">Other</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Input Price (per 1M tokens)</label>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:var(--text-muted);font-size:14px;">$</span>
+                <input type="number" id="pricingInput" class="form-input" min="0" step="0.01" placeholder="0.00" style="width:100%;">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Cached Input Price (per 1M tokens)</label>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:var(--text-muted);font-size:14px;">$</span>
+                <input type="number" id="pricingCachedInput" class="form-input" min="0" step="0.01" placeholder="0.00" style="width:100%;">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Output Price (per 1M tokens)</label>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:var(--text-muted);font-size:14px;">$</span>
+                <input type="number" id="pricingOutput" class="form-input" min="0" step="0.01" placeholder="0.00" style="width:100%;">
+            </div>
+        </div>
+    </div>
+    <div class="modal-panel-footer">
+        <button class="btn btn-ghost" onclick="closePricingEditor()">Cancel</button>
+        <button class="btn btn-primary" onclick="savePricing()">Save</button>
+    </div>
+</div>
+
+<script src="/static/models.js?v=2"></script>
+<script src="/static/custom-dropdown.js?v=1"></script>
+<script src="/static/settings.js?v=18"></script>
+</body>
+</html>

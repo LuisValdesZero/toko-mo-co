@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toko-Mo-Co — Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css?v=34">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .view { display: none; }
+        .view.active { display: block; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body>
+
+<div class="app-shell">
+
+    <!-- ── Sidebar ─────────────────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="sidebar-logo-icon">TMC</div>
+            <div class="sidebar-logo-text">
+                <span class="sidebar-logo-name">Toko-Mo-Co</span>
+                <span class="sidebar-logo-sub">Gateway</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Observability</div>
+
+            <button class="nav-item active" data-view="feed">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <polyline points="1,11 4,6 7,9 10,3 13,7 15,5"/>
+                </svg>
+                Request Feed
+                <span class="nav-badge" id="nav-badge-feed">0</span>
+            </button>
+
+            <button class="nav-item" data-view="agents">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="1" y="1" width="6" height="6" rx="1"/>
+                    <rect x="9" y="1" width="6" height="6" rx="1"/>
+                    <rect x="1" y="9" width="6" height="6" rx="1"/>
+                    <rect x="9" y="9" width="6" height="6" rx="1"/>
+                </svg>
+                Agents
+                <span class="nav-badge" id="nav-badge-agents">0</span>
+            </button>
+
+            <button class="nav-item" data-view="sessions">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="1" y="2" width="14" height="3" rx="1"/>
+                    <rect x="1" y="7" width="14" height="3" rx="1"/>
+                    <rect x="1" y="12" width="10" height="3" rx="1"/>
+                </svg>
+                Sessions
+                <span class="nav-badge" id="nav-badge-sessions">0</span>
+            </button>
+
+            <button class="nav-item" data-view="security">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1L2 4v4c0 4 2.5 6.5 6 7.5 3.5-1 6-3.5 6-7.5V4L8 1z"/>
+                    <path d="M6 8l2 2 3-3"/>
+                </svg>
+                Security
+            </button>
+
+            <div class="nav-section-label" style="margin-top:8px;">Control</div>
+
+            <button class="nav-item" data-view="rules">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 4h12M4 8h8M6 12h4"/>
+                </svg>
+                Rules
+                <span class="nav-badge" id="nav-badge-rules">0</span>
+            </button>
+
+            <div class="nav-section-label" style="margin-top:8px;">Config</div>
+
+            <button class="nav-item" id="connectBtn">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="3" cy="8" r="2"/>
+                    <circle cx="13" cy="4" r="2"/>
+                    <circle cx="13" cy="12" r="2"/>
+                    <line x1="5" y1="7.3" x2="11" y2="4.7"/>
+                    <line x1="5" y1="8.7" x2="11" y2="11.3"/>
+                </svg>
+                Connect App
+            </button>
+
+            <a class="nav-item" href="/settings#providers">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2" y="2" width="5" height="5" rx="1"/>
+                    <rect x="9" y="2" width="5" height="5" rx="1"/>
+                    <rect x="5.5" y="9" width="5" height="5" rx="1"/>
+                </svg>
+                Providers
+            </a>
+
+            <a class="nav-item" href="/settings#pricing">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1v14M5 4h5a2 2 0 0 1 0 4H4M6 8h5a2 2 0 0 1 0 4H4"/>
+                </svg>
+                Pricing
+            </a>
+
+            <a class="nav-item" href="/settings#reliability">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 8a6 6 0 0 1 10.3-4.2M14 2v4h-4"/>
+                    <path d="M14 8a6 6 0 0 1-10.3 4.2M2 14v-4h4"/>
+                </svg>
+                Reliability
+            </a>
+
+            <a class="nav-item" href="/settings#intelligence">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="8" cy="8" r="6"/>
+                    <path d="M8 5v3l2 1.5"/>
+                    <circle cx="8" cy="8" r="1" fill="currentColor"/>
+                </svg>
+                Intelligence
+            </a>
+
+            <a class="nav-item" href="/settings#security">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 1L2 4v4c0 4 2.5 6.5 6 7.5 3.5-1 6-3.5 6-7.5V4L8 1z"/>
+                    <path d="M6 8l2 2 3-3"/>
+                </svg>
+                PII &amp; Redaction
+            </a>
+
+            <a class="nav-item" href="/settings#auth">
+                <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+                    <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+                </svg>
+                Auth &amp; Keys
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-pill" id="statusPill">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Connecting…</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Main column ─────────────────────────────────────────── -->
+    <div class="main-col">
+
+        <div class="topbar">
+            <span class="topbar-title" id="topbarTitle">Request Feed</span>
+            <div class="topbar-actions">
+                <button class="btn btn-ghost" id="connectBtnTop">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="3" cy="8" r="2"/>
+                        <circle cx="13" cy="4" r="2"/>
+                        <circle cx="13" cy="12" r="2"/>
+                        <line x1="5" y1="7.3" x2="11" y2="4.7"/>
+                        <line x1="5" y1="8.7" x2="11" y2="11.3"/>
+                    </svg>
+                    Connect
+                </button>
+            </div>
+        </div>
+
+        <div class="page-content">
+
+            <!-- ── VIEW: FEED ──────────────────────────────────── -->
+            <div class="view active" id="view-feed">
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Cost</div>
+                        <div class="stat-value green" id="totalCost">$0.0000</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Requests</div>
+                        <div class="stat-value" id="requestCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Avg Cost/Req</div>
+                        <div class="stat-value" id="avgCost">$0.0000</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Input Tokens</div>
+                        <div class="stat-value" id="inputTokens">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Output Tokens</div>
+                        <div class="stat-value" id="outputTokens">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Error Rate</div>
+                        <div class="stat-value" id="errorRate">0%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Cache Hit Rate</div>
+                        <div class="stat-value" id="cacheHitRate" style="color:#38bdf8">—</div>
+                    </div>
+                </div>
+
+                <div class="section-card" id="savingsCard">
+                    <div class="section-header">
+                        <span class="section-title">Cost Savings</span>
+                        <span class="section-meta" id="savingsMeta">Proxy features saving you money</span>
+                    </div>
+                    <div class="savings-card">
+                        <div class="savings-hero">
+                            <div class="savings-hero-label">Total Saved</div>
+                            <div class="savings-hero-value" id="savingsTotal">$0.00</div>
+                        </div>
+                        <div class="savings-divider"></div>
+                        <div class="savings-breakdown">
+                            <div class="savings-feature">
+                                <div class="savings-feature-label">Cache</div>
+                                <div class="savings-feature-value" id="savingsCache">$0.00</div>
+                                <div class="savings-feature-detail" id="savingsCacheDetail">0 hits</div>
+                            </div>
+                            <div class="savings-feature">
+                                <div class="savings-feature-label">Rules Blocked</div>
+                                <div class="savings-feature-value" id="savingsRules">$0.00</div>
+                                <div class="savings-feature-detail" id="savingsRulesDetail">0 blocked</div>
+                            </div>
+                            <div class="savings-feature">
+                                <div class="savings-feature-label">Fallback</div>
+                                <div class="savings-feature-value" id="savingsFallback">0</div>
+                                <div class="savings-feature-detail" id="savingsFallbackDetail">requests rescued</div>
+                            </div>
+                            <div class="savings-feature">
+                                <div class="savings-feature-label">PII Redacted</div>
+                                <div class="savings-feature-value" id="savingsPII">0</div>
+                                <div class="savings-feature-detail" id="savingsPIIDetail">0 requests</div>
+                            </div>
+                            <div class="savings-feature">
+                                <div class="savings-feature-label">Memory</div>
+                                <div class="savings-feature-value" id="savingsMemory">0 hits</div>
+                                <div class="savings-feature-detail" id="savingsMemoryDetail">0 lookups</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="savingsTips" class="savings-tips" style="display:none;"></div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header" style="cursor: pointer;" onclick="toggleChartSection()">
+                        <span class="section-title">Cost over time</span>
+                        <span class="section-meta" id="chartMeta">0 points</span>
+                        <button class="btn btn-ghost btn-icon" id="chartToggleBtn" title="Toggle chart" aria-label="Toggle chart" style="margin-left: auto;">
+                            <span id="chartChevron">▼</span>
+                        </button>
+                    </div>
+                    <div class="chart-wrap" id="chartWrap">
+                        <canvas id="burnRateChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header">
+                        <span class="section-title">Request Log</span>
+                        <span class="section-meta" id="feedCount">0 requests</span>
+                        <div class="section-actions">
+                            <button class="btn btn-ghost btn-icon" id="clearFeedBtn" title="Clear feed" aria-label="Clear feed">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                                    <polyline points="3,4 13,4"/><path d="M5 4V2h6v2"/><path d="M4 4l1 10h6l1-10"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="feed-scroll">
+                        <table class="feed-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Agent</th>
+                                    <th>Provider</th>
+                                    <th>Model</th>
+                                    <th>Prompt</th>
+                                    <th style="text-align:right">In</th>
+                                    <th style="text-align:right">Out</th>
+                                    <th style="text-align:right">Cost</th>
+                                    <th style="text-align:right">Latency</th>
+                                    <th style="text-align:right">Status</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="feedBody">
+                                <tr class="feed-empty">
+                                    <td colspan="11">No requests yet — point your app at the proxy and traffic will appear here in real-time.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div><!-- /view-feed -->
+
+            <!-- ── VIEW: AGENTS ───────────────────────────────── -->
+            <div class="view" id="view-agents">
+                <div class="agents-toolbar">
+                    <p>Live cost and usage per agent. Tag requests with <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;font-family:var(--font-mono);font-size:11px;color:var(--accent)">X-Agent-ID</code> to identify them here.</p>
+                </div>
+
+                <!-- Search / filter bar -->
+                <div class="agents-search-bar">
+                    <svg class="agents-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <circle cx="7" cy="7" r="5"/><line x1="11" y1="11" x2="15" y2="15"/>
+                    </svg>
+                    <input type="text" id="agentSearchInput" class="agents-search-input" placeholder="Filter agents by name..." autocomplete="off" spellcheck="false">
+                </div>
+
+                <!-- Grouped table container (JS populates this) -->
+                <div id="agentsGroupContainer">
+                    <div class="agent-empty" id="agentEmpty">
+                        No agents seen yet.<br>
+                        Send requests with <code>X-Agent-ID: my-agent</code> or traffic will auto-label by SDK client.
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── VIEW: RULES ───────────────────────────────── -->
+            <div class="view" id="view-rules">
+                <div class="agents-toolbar">
+                    <p>Block, rate-limit, or modify requests based on agent, model, cost, tokens, or content.</p>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-ghost" id="showTemplatesBtn">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:6px">
+                                <rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/>
+                                <rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>
+                            </svg>
+                            Templates
+                        </button>
+                        <button class="btn btn-primary" id="createRuleBtn">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px">
+                                <line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>
+                            </svg>
+                            Create Rule
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Template Picker (hidden by default) -->
+                <div class="section-card" id="templatePicker" style="display:none;">
+                    <div class="section-header">
+                        <span class="section-title">Rule Templates</span>
+                        <button class="btn btn-ghost btn-sm" id="closeTemplatesBtn">Dismiss</button>
+                    </div>
+                    <div id="templateGrid" class="template-grid">
+                        <div style="padding:24px;text-align:center;color:var(--text-muted);">Loading templates...</div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header">
+                        <span class="section-title">Active Rules</span>
+                        <span class="section-meta" id="rulesCount">0 rules</span>
+                    </div>
+                    <div id="rulesTable" style="min-height:200px;">
+                        <div class="feed-empty" id="rulesEmpty">
+                            No rules defined yet. Create your first rule to control proxy behavior.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── VIEW: ALERTS (scaffold) ────────────────────── -->
+            <div class="view" id="view-alerts">
+                <div class="agents-toolbar">
+                    <p>Budget thresholds, anomaly detection, and notification channels.</p>
+                </div>
+                <div class="section-card" style="padding:60px 24px;text-align:center;">
+                    <div style="font-size:32px;margin-bottom:16px">🔔</div>
+                    <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px">Alerts — Coming Soon</div>
+                    <div style="font-size:12px;color:var(--text-muted);max-width:480px;margin:0 auto;line-height:1.8">
+                        Set spend budgets per agent or globally. Get notified via webhook or email when
+                        burn rate spikes, error rates climb, token usage looks abnormal, or a loop is detected.
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── VIEW: SESSIONS ─────────────────────────────── -->
+            <div class="view" id="view-sessions">
+                <div class="agents-toolbar">
+                    <p>Multi-request sessions grouped by X-Session-ID. Click a session to see its request breakdown.</p>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" class="search-input" id="sessionSearchInput" placeholder="Filter by app name…" style="width:200px;">
+                        <button class="btn btn-ghost" id="sessionRefreshBtn">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header">
+                        <span class="section-title" id="sessionsTitle">Sessions</span>
+                        <span class="section-meta" id="sessionsCount">Loading…</span>
+                    </div>
+                    <div id="sessionsTableWrap" style="max-height:600px;overflow-y:auto;">
+                        <table class="feed-table">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Session ID</th>
+                                    <th>App</th>
+                                    <th>Agent</th>
+                                    <th class="col-num">Requests</th>
+                                    <th class="col-cost">Cost</th>
+                                    <th class="col-num">In Tokens</th>
+                                    <th class="col-num">Out Tokens</th>
+                                    <th class="col-time">Duration</th>
+                                    <th class="col-time">Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionsBody">
+                                <tr class="feed-empty"><td colspan="10">Loading sessions…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="sessionsPagination" class="section-footer" style="display:none;padding:8px 16px;display:flex;justify-content:space-between;align-items:center;">
+                        <button class="btn btn-ghost btn-sm" id="sessionsPrevBtn" disabled>← Previous</button>
+                        <span class="section-meta" id="sessionsPageInfo"></span>
+                        <button class="btn btn-ghost btn-sm" id="sessionsNextBtn" disabled>Next →</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ── VIEW: SECURITY ─────────────────────────────── -->
+            <div class="view" id="view-security">
+                <div class="agents-toolbar">
+                    <p>PII redaction monitoring and data protection insights.</p>
+                    <span id="securityStatusBadge" class="badge" style="font-size:11px;"></span>
+                </div>
+
+                <!-- Stats row -->
+                <div class="stats-grid sec-stat-grid" style="margin-bottom:20px;">
+                    <div class="stat-card">
+                        <div class="stat-value" id="secTotalItems">0</div>
+                        <div class="stat-label">Items Redacted</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secTotalRequests">0</div>
+                        <div class="stat-label">Requests Flagged</div>
+                        <div class="stat-sub" id="secFlaggedPct"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secDetectionRate">0%</div>
+                        <div class="stat-label">Detection Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secCategoryCountCard">0</div>
+                        <div class="stat-label">Categories Active</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secTopCategory">—</div>
+                        <div class="stat-label">Top Category</div>
+                        <div class="stat-sub" id="secTopCategoryCount"></div>
+                    </div>
+                </div>
+
+                <!-- Two-column layout -->
+                <div class="sec-layout">
+                    <!-- Left column -->
+                    <div class="sec-col-main">
+                        <!-- Detection Timeline -->
+                        <div class="section-card">
+                            <div class="section-header">
+                                <span class="section-title">Detection Timeline</span>
+                                <span class="section-meta">Last 7 days (hourly)</span>
+                            </div>
+                            <div class="sec-chart-wrap">
+                                <canvas id="secTimelineChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Recent Detections -->
+                        <div class="section-card">
+                            <div class="section-header">
+                                <span class="section-title">Recent Detections</span>
+                                <span class="section-meta" id="secRecentCount">0 detections</span>
+                            </div>
+                            <div class="feed-scroll" style="max-height:380px;">
+                                <table class="feed-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Agent</th>
+                                            <th>Model</th>
+                                            <th>Preview</th>
+                                            <th>Categories</th>
+                                            <th style="text-align:right;">Count</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="secRecentBody">
+                                        <tr class="feed-empty"><td colspan="6">Loading detections&hellip;</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right column -->
+                    <div class="sec-col-side">
+                        <!-- Category Distribution (doughnut) -->
+                        <div class="section-card">
+                            <div class="section-header">
+                                <span class="section-title">Category Distribution</span>
+                                <span class="section-meta" id="secCategoryCount">0 categories</span>
+                            </div>
+                            <div class="sec-chart-wrap sec-chart-donut">
+                                <canvas id="secCategoryDonut"></canvas>
+                            </div>
+                            <div id="secCategoryLegend" style="padding:0 16px 12px;"></div>
+                        </div>
+
+                        <!-- By Agent -->
+                        <div class="section-card">
+                            <div class="section-header">
+                                <span class="section-title">By Agent</span>
+                                <span class="section-meta" id="secAgentCount">0 agents</span>
+                            </div>
+                            <div id="secAgentBreakdown" style="min-height:60px;">
+                                <div class="feed-empty" id="secAgentEmpty">No agent data yet.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /page-content -->
+    </div><!-- /main-col -->
+</div><!-- /app-shell -->
+
+<!-- ── Connect drawer ───────────────────────────────────────────── -->
+<div class="setup-overlay" id="setupOverlay"></div>
+<div class="setup-drawer" id="setupDrawer">
+    <div class="setup-drawer-header">
+        <div>
+            <h2>Connect your app</h2>
+            <p>Zero code changes — update base URL only.</p>
+        </div>
+        <button class="btn btn-ghost btn-icon" id="setupClose" aria-label="Close">✕</button>
+    </div>
+    <div class="setup-tabs">
+        <button class="tab-btn active" data-tab="openai">Python · OpenAI</button>
+        <button class="tab-btn" data-tab="anthropic">Python · Anthropic</button>
+        <button class="tab-btn" data-tab="langchain">LangChain</button>
+        <button class="tab-btn" data-tab="openclaw">OpenClaw</button>
+        <button class="tab-btn" data-tab="shell">curl</button>
+    </div>
+    <div class="setup-body">
+        <div class="tab-content active" id="tab-openai">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-openai">Copy</button>
+                <pre id="code-openai">from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="your-openai-key",
+    default_headers={
+        "X-Agent-ID":   "my-agent",    # Agents view
+        "X-App-Name":   "my-project",  # groups agents by app
+        "X-Session-ID": "session-123", # groups into sessions
+    }
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}]
+)</pre>
+            </div>
+            <div class="setup-note">
+                <strong>Agent tagging</strong> — add <code>X-Agent-ID</code> and <code>X-App-Name</code> to see named
+                agents in the Agents view with per-agent cost, token, and request breakdowns. Future Rules Engine
+                will use these headers to apply per-agent policies.
+            </div>
+        </div>
+        <div class="tab-content" id="tab-anthropic">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-anthropic">Copy</button>
+                <pre id="code-anthropic">import anthropic
+
+client = anthropic.Anthropic(
+    base_url="http://localhost:8080",
+    api_key="your-anthropic-key",
+    default_headers={
+        "X-Agent-ID": "my-agent",
+        "X-App-Name": "my-project",
+    }
+)
+
+message = client.messages.create(
+    model="claude-opus-4-5-20250929",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)</pre>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-langchain">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-langchain">Copy</button>
+                <pre id="code-langchain">from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    openai_api_base="http://localhost:8080/v1",
+    openai_api_key="your-api-key",
+    model_name="gpt-4o",
+    default_headers={"X-Agent-ID": "langchain-agent"}
+)
+
+response = llm.invoke("Hello!")</pre>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-openclaw">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-openclaw">Copy</button>
+                <pre id="code-openclaw"># ~/.openclaw/openclaw.json
+{
+  "models": {
+    "providers": {
+      "proxied-anthropic": {
+        "baseUrl": "http://localhost:8080",
+        "apiKey": "${ANTHROPIC_API_KEY}",
+        "api": "anthropic-messages",
+        "models": [
+          { "id": "claude-opus-4-5", "name": "Claude (proxied)" }
+        ]
+      }
+    }
+  }
+}</pre>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-shell">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-shell">Copy</button>
+                <pre id="code-shell"># OpenAI SDK
+export OPENAI_BASE_URL="http://localhost:8080/v1"
+
+# Anthropic SDK
+export ANTHROPIC_BASE_URL="http://localhost:8080"
+
+# Health
+curl http://localhost:8080/health</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Settings drawer ──────────────────────────────────────────── -->
+<div class="settings-overlay" id="settingsOverlay"></div>
+<div class="settings-drawer" id="settingsDrawer">
+    <div class="settings-drawer-header">
+        <h2>Settings</h2>
+        <button class="btn btn-ghost btn-icon" id="settingsClose" aria-label="Close">✕</button>
+    </div>
+    <div class="settings-body">
+        <div class="settings-section">
+            <div class="settings-section-label">Loop Detection</div>
+            <div class="field">
+                <label class="field-label" for="injectionMode">Injection Mode</label>
+                <select id="injectionMode" data-custom-dropdown>
+                    <option value="metadata" selected>Metadata only</option>
+                    <option value="content">Content injection</option>
+                    <option value="hybrid">Hybrid (auto-escalate)</option>
+                </select>
+                <span class="field-hint">How loop warnings are surfaced to the calling agent.</span>
+            </div>
+            <div class="field">
+                <label class="field-label" for="contentThreshold">Content Threshold (USD)</label>
+                <input type="number" id="contentThreshold" value="10.00" step="0.01" min="0">
+                <span class="field-hint">Session cost to trigger content injection in hybrid mode.</span>
+            </div>
+            <div class="field">
+                <label class="field-label">Similarity Threshold: <span id="similarityValue">80%</span></label>
+                <input type="range" id="similarityThreshold" min="0" max="100" value="80">
+                <span class="field-hint">Minimum prompt similarity to count as a repeat.</span>
+            </div>
+        </div>
+        <div class="settings-section">
+            <div class="settings-section-label">Rules Engine</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.7">
+                Per-agent cost caps, rate limiting, model allowlists and blocking policies will be configurable here when the Rules module ships.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Rule Editor Modal ────────────────────────────────────────── -->
+<div class="settings-overlay" id="ruleEditorOverlay"></div>
+<div class="rule-editor-modal" id="ruleEditorDrawer">
+    <div class="rule-editor-header">
+        <h2 id="ruleEditorTitle">Create Rule</h2>
+        <div class="rule-editor-header-actions">
+            <button class="width-toggle-btn" data-width="narrow" title="Narrow (600px)">📱</button>
+            <button class="width-toggle-btn active" data-width="medium" title="Medium (900px)">💻</button>
+            <button class="width-toggle-btn" data-width="wide" title="Wide (1200px)">🖥️</button>
+            <button class="width-toggle-btn" data-width="fullscreen" title="Fullscreen">⛶</button>
+            <button class="btn btn-ghost btn-icon" id="ruleEditorClose" aria-label="Close">✕</button>
+        </div>
+    </div>
+    <div class="rule-editor-body">
+        <div class="field">
+            <label class="field-label">Rule Name</label>
+            <input type="text" id="ruleName" placeholder="e.g., Block expensive sessions">
+        </div>
+
+        <div class="field">
+            <label class="field-label">Description</label>
+            <textarea id="ruleDescription" rows="2" placeholder="Optional description"></textarea>
+        </div>
+
+        <div class="field">
+            <label class="field-label">Evidence / Rationale</label>
+            <textarea id="ruleEvidence" rows="2" placeholder="Why does this rule exist? Link to a feedback ID, incident, or observation."></textarea>
+            <span style="font-size:11px;color:var(--text-muted);margin-top:2px;display:block;">Document why this rule was created — helps future team members understand the reasoning.</span>
+        </div>
+
+        <div class="field">
+            <label class="field-label">Priority (higher = evaluated first)</label>
+            <input type="number" id="rulePriority" value="10" min="0" max="1000">
+        </div>
+
+        <div class="field">
+            <label class="field-label">Scope</label>
+            <select id="ruleScope">
+                <option value="">Global (all agents)</option>
+                <option value="scoped">Specific Agent</option>
+            </select>
+        </div>
+
+        <div class="field" id="scopeAgentField" style="display:none;">
+            <label class="field-label">Agent ID</label>
+            <select id="ruleScopeAgent">
+                <option value="">-- Select agent --</option>
+            </select>
+        </div>
+
+        <div style="margin-top:24px;margin-bottom:12px;font-weight:600;color:var(--text-primary);">Conditions (AND logic)</div>
+
+        <div id="conditionsContainer"></div>
+        <button class="btn btn-ghost" id="addConditionBtn" style="margin-top:12px;">+ Add Condition</button>
+
+        <div style="margin-top:24px;margin-bottom:12px;font-weight:600;color:var(--text-primary);">Action</div>
+
+        <div class="field">
+            <select id="ruleAction">
+                <option value="block">Block Request</option>
+                <option value="rate_limit">Rate Limit</option>
+                <option value="override_model">Override Model</option>
+                <option value="inject_prompt">Inject System Prompt</option>
+                <option value="redirect">Redirect Provider</option>
+            </select>
+        </div>
+
+        <div id="actionParams"></div>
+    </div>
+
+    <div class="rule-editor-footer">
+        <button class="btn btn-primary" id="saveRuleBtn">Save Rule</button>
+        <button class="btn btn-ghost" id="cancelRuleBtn">Cancel</button>
+    </div>
+
+    <div class="rule-editor-resize-handle" title="Drag to resize"></div>
+</div>
+
+<!-- ── Rule Request Log Modal ───────────────────────────────────── -->
+<div class="settings-overlay" id="ruleRequestLogOverlay" style="display:none" onclick="closeRuleRequestLog()"></div>
+<div class="modal-panel modal-panel-wide" id="ruleRequestLogModal" style="display:none">
+    <div class="modal-panel-header">
+        <h3 id="ruleRequestLogTitle">Request Log</h3>
+        <button class="btn btn-ghost btn-icon" onclick="closeRuleRequestLog()" aria-label="Close">✕</button>
+    </div>
+    <div class="request-log-table-wrap">
+        <table class="request-log-table">
+            <thead>
+                <tr>
+                    <th class="col-ts">Time</th>
+                    <th>Agent</th>
+                    <th>Provider</th>
+                    <th>Model</th>
+                    <th class="col-prompt">Prompt</th>
+                    <th class="text-right">In</th>
+                    <th class="text-right">Out</th>
+                    <th class="text-right">Cost</th>
+                    <th class="text-right">Latency</th>
+                    <th class="text-right">Status</th>
+                </tr>
+            </thead>
+            <tbody id="ruleRequestLogBody">
+                <tr><td colspan="10" class="request-log-empty">Select a rule to view its request log.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="modal-panel-footer">
+        <div class="request-log-pagination" id="ruleRequestLogPagination"></div>
+    </div>
+</div>
+
+<!-- ── Agent Detail Modal ────────────────────────────────────────── -->
+<div class="settings-overlay" id="agentDetailOverlay"></div>
+<div class="agent-detail-modal" id="agentDetailModal">
+    <div class="agent-detail-header" id="agentDetailHeader">
+        <div>
+            <h2 id="agentDetailName">Agent</h2>
+            <div class="agent-detail-app" id="agentDetailApp">—</div>
+        </div>
+        <button class="btn btn-ghost btn-icon" onclick="closeAgentDetail()" aria-label="Close">✕</button>
+    </div>
+
+    <div class="agent-detail-body">
+        <div class="agent-detail-stats">
+            <div class="agent-detail-stat">
+                <div class="agent-detail-stat-label">Total Cost</div>
+                <div class="agent-detail-stat-value" id="agentDetailCost">$0.0000</div>
+            </div>
+            <div class="agent-detail-stat">
+                <div class="agent-detail-stat-label">Requests</div>
+                <div class="agent-detail-stat-value" id="agentDetailRequests">0</div>
+            </div>
+            <div class="agent-detail-stat">
+                <div class="agent-detail-stat-label">Input Tokens</div>
+                <div class="agent-detail-stat-value" id="agentDetailInputTokens">0</div>
+            </div>
+            <div class="agent-detail-stat">
+                <div class="agent-detail-stat-label">Output Tokens</div>
+                <div class="agent-detail-stat-value" id="agentDetailOutputTokens">0</div>
+            </div>
+            <div class="agent-detail-stat">
+                <div class="agent-detail-stat-label">Last Seen</div>
+                <div class="agent-detail-stat-value" id="agentDetailLastSeen">—</div>
+            </div>
+        </div>
+
+        <div class="agent-detail-section">
+            <h3>Recent Requests</h3>
+            <div class="agent-requests-list" id="agentRequestsList">
+                <div style="text-align:center;color:var(--text-muted);padding:20px;">No requests yet</div>
+            </div>
+        </div>
+
+        <div class="agent-detail-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 style="margin:0;">Prompt Versions</h3>
+                <span class="section-meta" id="promptVersionCount">—</span>
+            </div>
+            <div id="promptVersionsList" class="prompt-versions-list">
+                <div style="text-align:center;color:var(--text-muted);padding:20px;">No prompt versions tracked yet</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Session Detail Modal ──────────────────────────────────────── -->
+<div class="settings-overlay" id="sessionDetailOverlay"></div>
+<div class="session-detail-modal" id="sessionDetailCard">
+    <div class="session-detail-header">
+        <div>
+            <h2 id="sessionDetailTitle">Session Detail</h2>
+            <span class="section-meta" id="sessionDetailMeta"></span>
+        </div>
+        <button class="btn btn-ghost btn-icon" id="sessionDetailClose" aria-label="Close">✕</button>
+    </div>
+    <div class="session-detail-body">
+        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+            <div class="stat-card"><span class="stat-label">Requests</span><span class="stat-value" id="sdRequests">—</span></div>
+            <div class="stat-card"><span class="stat-label">Total Cost</span><span class="stat-value cost" id="sdCost">—</span></div>
+            <div class="stat-card"><span class="stat-label">In Tokens</span><span class="stat-value" id="sdInTokens">—</span></div>
+            <div class="stat-card"><span class="stat-label">Out Tokens</span><span class="stat-value" id="sdOutTokens">—</span></div>
+        </div>
+        <div style="overflow-y:auto;max-height:calc(85vh - 200px);">
+            <table class="feed-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Time</th>
+                        <th>Agent</th>
+                        <th>Provider</th>
+                        <th>Model</th>
+                        <th class="col-prompt">Prompt</th>
+                        <th class="col-num">In</th>
+                        <th class="col-num">Out</th>
+                        <th class="col-cost">Cost</th>
+                        <th class="col-latency">Latency</th>
+                        <th class="col-status">Status</th>
+                        <th>Flags</th>
+                    </tr>
+                </thead>
+                <tbody id="sessionDetailBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ── Prompt Diff Modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="promptDiffOverlay" style="display:none" onclick="closePromptDiff()"></div>
+<div class="modal-panel modal-panel-wide" id="promptDiffModal" style="display:none">
+    <div class="modal-panel-header">
+        <h3 id="promptDiffTitle">Prompt Diff</h3>
+        <button class="btn btn-ghost btn-icon" onclick="closePromptDiff()" aria-label="Close">✕</button>
+    </div>
+    <div id="promptDiffContent" style="padding:16px;max-height:500px;overflow-y:auto;font-family:var(--font-mono);font-size:12px;line-height:1.7;">
+    </div>
+    <div class="modal-panel-footer" style="padding:12px 16px;display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" id="promptDiffPrevBtn" disabled>Newer Version</button>
+        <span class="section-meta" id="promptDiffMeta"></span>
+        <button class="btn btn-ghost btn-sm" id="promptDiffNextBtn" disabled>Older Version</button>
+    </div>
+</div>
+
+<script src="/static/app.js?v=34"></script>
+<script src="/static/models.js?v=2"></script>
+<script src="/static/custom-dropdown.js?v=1"></script>
+<script src="/static/rules.js?v=11"></script>
+</body>
+</html>
