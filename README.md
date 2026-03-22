@@ -259,7 +259,6 @@ go test -v ./...
 | [INTEGRATION.md](INTEGRATION.md) | Client examples — Python, TypeScript, LangChain, curl |
 | [RULES_ENGINE.md](RULES_ENGINE.md) | Rules engine design and API reference |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
-| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 
 ## Tech Stack
 
