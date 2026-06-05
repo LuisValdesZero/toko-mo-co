@@ -457,6 +457,15 @@
                         <div class="stat-label">Top Category</div>
                         <div class="stat-sub" id="secTopCategoryCount"></div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secJailbreaks">0</div>
+                        <div class="stat-label">Jailbreaks Detected</div>
+                        <div class="stat-sub" id="nemoGuardStatus"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="secJailbreaksBlocked">0</div>
+                        <div class="stat-label">Jailbreaks Blocked</div>
+                    </div>
                 </div>
 
                 <!-- Two-column layout -->
@@ -494,6 +503,31 @@
                                     </thead>
                                     <tbody id="secRecentBody">
                                         <tr class="feed-empty"><td colspan="6">Loading detections&hellip;</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Jailbreak Attempts (NeMo Guard) -->
+                        <div class="section-card">
+                            <div class="section-header">
+                                <span class="section-title">Jailbreak Attempts</span>
+                                <span class="section-meta" id="nemoGuardRecentCount">0 flagged</span>
+                            </div>
+                            <div class="feed-scroll" style="max-height:380px;">
+                                <table class="feed-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Agent</th>
+                                            <th>Model</th>
+                                            <th>Preview</th>
+                                            <th style="text-align:right;">Score</th>
+                                            <th style="text-align:right;">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="nemoGuardRecentBody">
+                                        <tr class="feed-empty"><td colspan="6">No jailbreak attempts.</td></tr>
                                     </tbody>
                                 </table>
                             </div>

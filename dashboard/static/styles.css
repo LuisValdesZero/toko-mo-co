@@ -653,6 +653,14 @@ body {
     font-weight: 600;
 }
 
+.badge-jailbreak {
+    background: rgba(248, 81, 73, 0.14);
+    color: #f85149;
+    border-color: rgba(248, 81, 73, 0.3);
+    font-size: 10px;
+    font-weight: 600;
+}
+
 /* Stream */
 .badge-stream { color: var(--text-muted); font-size: 9px; letter-spacing: 0; }
 

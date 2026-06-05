@@ -52,6 +52,10 @@ type RequestRow struct {
 	CacheHit         bool   // true if response was served from cache
 	PIIRedactedCount int    // Number of PII/secret items redacted in this request
 	PIICategories    string // JSON of per-category counts e.g. {"email":2,"phone":1}
+
+	JailbreakDetected bool    // true if NeMo Guard flagged the prompt as a jailbreak
+	JailbreakScore    float64 // NeMo Guard score (0..1) when available; else 0/1
+	JailbreakCategory string  // detector source/category (e.g. "nemoguard"); "" if none
 }
 
 // SessionRow is the aggregate totals for one session.
@@ -397,6 +401,9 @@ func (d *DB) migrate() error {
 		{"requests", "cache_hit", "INTEGER NOT NULL DEFAULT 0"},
 		{"requests", "pii_redacted_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"requests", "pii_categories", "TEXT NOT NULL DEFAULT ''"},
+		{"requests", "jailbreak_detected", "INTEGER NOT NULL DEFAULT 0"},
+		{"requests", "jailbreak_score", "REAL NOT NULL DEFAULT 0"},
+		{"requests", "jailbreak_category", "TEXT NOT NULL DEFAULT ''"},
 		{"rules", "evidence", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		d.db.Exec(`ALTER TABLE ` + col.table + ` ` + addCol + ` ` + col.name + ` ` + col.def) //nolint:errcheck
@@ -429,8 +436,9 @@ func (d *DB) InsertRequest(r RequestRow) error {
 			 input_tokens, output_tokens, cost, latency_ms, status_code,
 			 is_streaming, loop_detected, loop_severity, error_message,
 			 original_provider, original_model, fallback_config_id, matched_rule_id, cache_hit,
-			 pii_redacted_count, pii_categories)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
+			 pii_redacted_count, pii_categories,
+			 jailbreak_detected, jailbreak_score, jailbreak_category)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
 		r.Timestamp.Unix(), r.SessionID, r.AgentID, r.AppName,
 		r.Provider, r.Model, r.PromptPreview,
 		r.InputTokens, r.OutputTokens, r.Cost, r.LatencyMs, r.StatusCode,
@@ -438,6 +446,7 @@ func (d *DB) InsertRequest(r RequestRow) error {
 		r.OriginalProvider, r.OriginalModel, r.FallbackConfigID, r.MatchedRuleID,
 		boolInt(r.CacheHit),
 		r.PIIRedactedCount, r.PIICategories,
+		boolInt(r.JailbreakDetected), r.JailbreakScore, r.JailbreakCategory,
 	)
 	if err != nil {
 		return err
@@ -1554,6 +1563,102 @@ func (d *DB) GetPIIStats() PIIStats {
 		}
 		for key, count := range cats {
 			stats.Categories[key] += count
+		}
+	}
+
+	return stats
+}
+
+// ── NeMo Guard (jailbreak) analytics ────────────────────────────────────────
+
+// NemoGuardStats holds aggregate jailbreak-detection counts across all requests.
+type NemoGuardStats struct {
+	TotalRequestsScanned int `json:"total_requests_scanned"`
+	JailbreaksDetected   int `json:"jailbreaks_detected"`
+	Blocked              int `json:"blocked"` // detected requests rejected with 403
+}
+
+// GetNemoGuardStats returns aggregate jailbreak statistics.
+func (d *DB) GetNemoGuardStats() NemoGuardStats {
+	var s NemoGuardStats
+	_ = d.db.QueryRow(`SELECT COUNT(*) FROM requests`).Scan(&s.TotalRequestsScanned)
+	_ = d.db.QueryRow(`SELECT COALESCE(COUNT(*),0) FROM requests WHERE jailbreak_detected = 1`).Scan(&s.JailbreaksDetected)
+	_ = d.db.QueryRow(`SELECT COALESCE(COUNT(*),0) FROM requests WHERE jailbreak_detected = 1 AND status_code = 403`).Scan(&s.Blocked)
+	return s
+}
+
+// NemoGuardRecent is a single request flagged as a jailbreak.
+type NemoGuardRecent struct {
+	ID            int64   `json:"id"`
+	Timestamp     int64   `json:"timestamp"`
+	AgentID       string  `json:"agent_id"`
+	Model         string  `json:"model"`
+	PromptPreview string  `json:"prompt_preview"`
+	Score         float64 `json:"score"`
+	StatusCode    int     `json:"status_code"`
+	Category      string  `json:"category"`
+}
+
+// NemoGuardDetailStats holds enriched jailbreak analytics for the details endpoint.
+// Reuses the PII timeline/agent shapes (hour+count, agent+items+requests).
+type NemoGuardDetailStats struct {
+	Timeline []PIITimelineBucket `json:"timeline"`
+	ByAgent  []PIIAgentBreakdown `json:"by_agent"`
+	Recent   []NemoGuardRecent   `json:"recent"`
+}
+
+// GetNemoGuardDetails returns hourly timeline, per-agent breakdown, and a recent
+// log of jailbreak detections.
+func (d *DB) GetNemoGuardDetails() NemoGuardDetailStats {
+	var stats NemoGuardDetailStats
+
+	sevenDaysAgo := time.Now().Add(-7 * 24 * time.Hour).Unix()
+	tRows, err := d.db.Query(`
+		SELECT (timestamp / 3600) * 3600 AS hour_bucket, COUNT(*) AS count
+		FROM requests
+		WHERE jailbreak_detected = 1 AND timestamp >= ?
+		GROUP BY hour_bucket
+		ORDER BY hour_bucket ASC`, sevenDaysAgo)
+	if err == nil {
+		defer tRows.Close()
+		for tRows.Next() {
+			var b PIITimelineBucket
+			if err := tRows.Scan(&b.Hour, &b.Count); err == nil {
+				stats.Timeline = append(stats.Timeline, b)
+			}
+		}
+	}
+
+	aRows, err := d.db.Query(`
+		SELECT agent_id, COUNT(*) AS items, COUNT(*) AS reqs
+		FROM requests
+		WHERE jailbreak_detected = 1
+		GROUP BY agent_id
+		ORDER BY items DESC
+		LIMIT 20`)
+	if err == nil {
+		defer aRows.Close()
+		for aRows.Next() {
+			var a PIIAgentBreakdown
+			if err := aRows.Scan(&a.AgentID, &a.ItemsRedacted, &a.RequestCount); err == nil {
+				stats.ByAgent = append(stats.ByAgent, a)
+			}
+		}
+	}
+
+	rRows, err := d.db.Query(`
+		SELECT id, timestamp, agent_id, model, prompt_preview, jailbreak_score, status_code, jailbreak_category
+		FROM requests
+		WHERE jailbreak_detected = 1
+		ORDER BY id DESC
+		LIMIT 50`)
+	if err == nil {
+		defer rRows.Close()
+		for rRows.Next() {
+			var rc NemoGuardRecent
+			if err := rRows.Scan(&rc.ID, &rc.Timestamp, &rc.AgentID, &rc.Model, &rc.PromptPreview, &rc.Score, &rc.StatusCode, &rc.Category); err == nil {
+				stats.Recent = append(stats.Recent, rc)
+			}
 		}
 	}
 

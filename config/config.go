@@ -88,6 +88,14 @@ type Config struct {
 	MemoryRecencyLambda  float64 `json:"memory_recency_lambda"`     // Decay rate for recency-weighted scoring (default: 0.01)
 	MemoryConflictThresh float64 `json:"memory_conflict_threshold"` // Similarity threshold for conflict detection (default: 0.85)
 	MemoryTTLDays        int     `json:"memory_ttl_days"`           // Days before unused memories are eviction candidates (default: 90)
+
+	// NeMo Guard — jailbreak detection (env-gated; enabled when NeMoGuardURL is set)
+	NeMoGuardURL          string  `json:"nemo_guard_url"`           // NeMo Guard NIM base URL; empty = disabled
+	NeMoGuardClassifyPath string  `json:"nemo_guard_classify_path"` // classify endpoint path (default: /v1/classify)
+	NeMoGuardAPIKey       string  `json:"nemo_guard_api_key"`       // optional Bearer token
+	NeMoGuardMode         string  `json:"nemo_guard_mode"`          // "block" (default) | "flag"
+	NeMoGuardThreshold    float64 `json:"nemo_guard_threshold"`     // score >= threshold = jailbreak (when NIM returns a score)
+	NeMoGuardTimeoutSec   int     `json:"nemo_guard_timeout_sec"`   // per-request timeout (default: 10)
 }
 
 // Default returns a Config with all defaults pre-filled.
@@ -134,6 +142,11 @@ func Default() Config {
 		MemoryRecencyLambda:     0.01, // 30-day-old memory retains ~74% weight
 		MemoryConflictThresh:    0.85, // Similarity threshold for conflict detection
 		MemoryTTLDays:           90,   // Memories not accessed in 90 days are eviction candidates
+
+		NeMoGuardClassifyPath: "/v1/classify",
+		NeMoGuardMode:         "block",
+		NeMoGuardThreshold:    0.5,
+		NeMoGuardTimeoutSec:   10,
 	}
 }
 
@@ -263,6 +276,14 @@ func applyEnv(cfg *Config) {
 	setFloat("CONFIG_MEMORY_RECENCY_LAMBDA", &cfg.MemoryRecencyLambda)
 	setFloat("CONFIG_MEMORY_CONFLICT_THRESHOLD", &cfg.MemoryConflictThresh)
 	setInt("CONFIG_MEMORY_TTL_DAYS", &cfg.MemoryTTLDays)
+
+	// NeMo Guard (jailbreak detection) — presence of the URL enables the feature
+	setStr("CONFIG_NEMOGUARD_URL", &cfg.NeMoGuardURL)
+	setStr("CONFIG_NEMOGUARD_CLASSIFY_PATH", &cfg.NeMoGuardClassifyPath)
+	setStr("CONFIG_NEMOGUARD_API_KEY", &cfg.NeMoGuardAPIKey)
+	setStr("CONFIG_NEMOGUARD_MODE", &cfg.NeMoGuardMode)
+	setFloat("CONFIG_NEMOGUARD_THRESHOLD", &cfg.NeMoGuardThreshold)
+	setInt("CONFIG_NEMOGUARD_TIMEOUT_SEC", &cfg.NeMoGuardTimeoutSec)
 }
 
 // validate returns an error if any config value is out of range.
@@ -282,6 +303,17 @@ func (cfg *Config) validate() error {
 	}
 	if cfg.UpstreamTimeoutSec < 1 {
 		errs = append(errs, "upstream_timeout_sec must be >= 1")
+	}
+	if cfg.NeMoGuardURL != "" {
+		if cfg.NeMoGuardMode != "block" && cfg.NeMoGuardMode != "flag" {
+			errs = append(errs, `nemo_guard_mode must be "block" or "flag"`)
+		}
+		if cfg.NeMoGuardThreshold < 0 || cfg.NeMoGuardThreshold > 1 {
+			errs = append(errs, "nemo_guard_threshold must be 0.0–1.0")
+		}
+		if cfg.NeMoGuardTimeoutSec < 1 || cfg.NeMoGuardTimeoutSec > 60 {
+			errs = append(errs, "nemo_guard_timeout_sec must be 1–60")
+		}
 	}
 	// Validate runtime-tunable settings via the shared function
 	errs = append(errs, validateSettings(cfg.RetryMaxAttempts, cfg.RetryInitialDelay,
@@ -389,6 +421,11 @@ func validateSettings(
 // UpstreamTimeout converts the timeout setting to a time.Duration.
 func (cfg *Config) UpstreamTimeout() time.Duration {
 	return time.Duration(cfg.UpstreamTimeoutSec) * time.Second
+}
+
+// NeMoGuardTimeout converts the NeMo Guard timeout setting to a time.Duration.
+func (cfg *Config) NeMoGuardTimeout() time.Duration {
+	return time.Duration(cfg.NeMoGuardTimeoutSec) * time.Second
 }
 
 // SessionMaxAgeDuration converts the max-age setting to a time.Duration.

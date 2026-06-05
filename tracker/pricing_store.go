@@ -281,6 +281,10 @@ func detectProvider(prefix string) string {
 		return "anthropic"
 	case strings.HasPrefix(prefix, "gemini-"):
 		return "google"
+	case strings.Contains(prefix, "/"):
+		// vendor-namespaced ids (e.g. "openai/gpt-4o", "meta-llama/...") are
+		// reached through the OpenRouter custom provider.
+		return "openrouter"
 	default:
 		return "other"
 	}

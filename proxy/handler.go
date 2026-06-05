@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"tokomoco/detector"
 	"tokomoco/injector"
 	"tokomoco/memory"
+	"tokomoco/nemoguard"
 	"tokomoco/providers"
 	"tokomoco/redactor"
 	"tokomoco/reliability"
@@ -84,18 +86,19 @@ type Handler struct {
 	injCfg         injector.InjectionConfig
 	httpClient     *http.Client
 	rulesEngine    *rules.Engine              // optional; nil if rules are disabled
-	fallbackStore  *reliability.FallbackStore  // optional; nil if fallback configs not used
-	responseCache  *cache.ResponseCache        // optional; nil if cache is disabled
-	semanticCache  *cache.SemanticCache        // optional; nil if semantic cache is disabled
-	memoryStore    *memory.Store               // optional; nil if memory layer is disabled
-	providerStore  *providers.ProviderStore    // optional; nil if no custom providers configured
-	persistSem     chan struct{}               // semaphore to cap concurrent persist goroutines
+	fallbackStore  *reliability.FallbackStore // optional; nil if fallback configs not used
+	responseCache  *cache.ResponseCache       // optional; nil if cache is disabled
+	semanticCache  *cache.SemanticCache       // optional; nil if semantic cache is disabled
+	memoryStore    *memory.Store              // optional; nil if memory layer is disabled
+	providerStore  *providers.ProviderStore   // optional; nil if no custom providers configured
+	nemoGuard      *nemoguard.Detector        // optional; nil if NeMo Guard jailbreak detection disabled
+	persistSem     chan struct{}              // semaphore to cap concurrent persist goroutines
 	scMu           sync.RWMutex               // protects semanticCache hot-swap
 }
 
 // NewHandler creates a new proxy handler.
 // cfg must be a pointer so runtime settings changes (via the settings API) take effect immediately.
-func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dashboard.Hub, db *store.DB, cfg *config.Config, re *rules.Engine, fs *reliability.FallbackStore, rc *cache.ResponseCache, sc *cache.SemanticCache, ms *memory.Store, ps *providers.ProviderStore) *Handler {
+func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dashboard.Hub, db *store.DB, cfg *config.Config, re *rules.Engine, fs *reliability.FallbackStore, rc *cache.ResponseCache, sc *cache.SemanticCache, ms *memory.Store, ps *providers.ProviderStore, ng *nemoguard.Detector) *Handler {
 	tc, _ := tracker.NewTokenCounter()
 
 	// Map injection mode from config string to injector constant
@@ -130,6 +133,7 @@ func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dash
 		semanticCache: sc, // nil if semantic cache is disabled
 		memoryStore:   ms, // nil if memory is disabled
 		providerStore: ps, // nil if no custom providers
+		nemoGuard:     ng, // nil if NeMo Guard jailbreak detection disabled
 		persistSem:    make(chan struct{}, maxPersistGoroutines),
 	}
 }
@@ -484,18 +488,39 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// ── Rules evaluation ────────────────────────────────────────────────────
 	var matchedRuleID int64
 	estimatedCost := tracker.CalculateCost(model, inputTokens, 0, 0)
+
+	// ── Jailbreak detection (NeMo Guard) ────────────────────────────────────
+	// Runs once when enabled (CONFIG_NEMOGUARD_URL set). The verdict feeds the
+	// rules engine (CondJailbreak) and the default auto-block below. Fail-open:
+	// a detector error/timeout never blocks the request.
+	var jbDetected bool
+	var jbScore float64
+	var jbCategory string
+	if h.nemoGuard != nil {
+		jbCtx, cancel := context.WithTimeout(r.Context(), h.cfg.NeMoGuardTimeout())
+		res, jbErr := h.nemoGuard.Classify(jbCtx, extractConversationText(reqData, messages, apiFormat))
+		cancel()
+		if jbErr != nil {
+			log.Printf("[NEMOGUARD] check failed (allowing): %v", jbErr)
+		} else if res.Jailbreak {
+			jbDetected, jbScore, jbCategory = true, res.Score, "nemoguard"
+		}
+	}
+
 	if h.rulesEngine != nil {
 		rctx := &rules.RuleContext{
-			AgentID:       agentID,
-			AppName:       appName,
-			Provider:      provider,
-			Model:         model,
-			Session:       session,
-			InputTokens:   inputTokens,
-			Cost:          estimatedCost,
-			LoopResult:    loopResult,
-			PromptPreview: promptPreview,
-			RawMessages:   messages,
+			AgentID:           agentID,
+			AppName:           appName,
+			Provider:          provider,
+			Model:             model,
+			Session:           session,
+			InputTokens:       inputTokens,
+			Cost:              estimatedCost,
+			LoopResult:        loopResult,
+			PromptPreview:     promptPreview,
+			RawMessages:       messages,
+			JailbreakDetected: jbDetected,
+			JailbreakScore:    jbScore,
 		}
 		result, matched := h.rulesEngine.Evaluate(rctx)
 		if matched && result.MatchedRule != nil {
@@ -510,7 +535,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 					result.BlockStatus, false, loopResult,
 					fmt.Sprintf("Blocked by rule: %s", result.MatchedRule.Name),
 					"", "", 0, result.MatchedRule.ID, false,
-					0, "")
+					0, "",
+					jbDetected, jbScore, jbCategory)
 				return
 
 			case rules.ActionOverrideModel:
@@ -534,6 +560,23 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 				upstreamURL = result.RedirectURL
 			}
 		}
+	}
+
+	// ── NeMo Guard default auto-block ───────────────────────────────────────
+	// A CondJailbreak rule (if any) already returned above. Otherwise, when a
+	// jailbreak was detected and mode is "block" (default), reject here. In
+	// "flag" mode the request is forwarded and the detection is recorded below.
+	if jbDetected && h.nemoGuard != nil && h.nemoGuard.Mode() == "block" {
+		h.nemoGuard.MarkBlocked()
+		http.Error(w, "Request blocked: jailbreak attempt detected.", http.StatusForbidden)
+		h.persistAndBroadcast(session, provider, model, agentID, appName,
+			promptPreview, inputTokens, 0, estimatedCost, 0,
+			http.StatusForbidden, false, loopResult,
+			"Blocked: jailbreak detected (nemoguard)",
+			"", "", 0, 0, false,
+			0, "",
+			jbDetected, jbScore, jbCategory)
+		return
 	}
 
 	// ── PII Redaction ──────────────────────────────────────────────────────
@@ -614,7 +657,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 						promptPreview, entry.InputTokens, entry.OutputTokens, entry.CostPerHit, 0,
 						entry.StatusCode, false, loopResult, "",
 						"", "", 0, matchedRuleID, true,
-						piiRedactedCount, piiCategoriesJSON)
+						piiRedactedCount, piiCategoriesJSON,
+						jbDetected, jbScore, jbCategory)
 					log.Printf("[CACHE] HIT for %s/%s hash=%s saved=$%.6f", provider, model, cacheHash[:12], entry.CostPerHit)
 					return
 				}
@@ -642,7 +686,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 									promptPreview, entry.InputTokens, entry.OutputTokens, entry.CostPerHit, 0,
 									entry.StatusCode, false, loopResult, "",
 									"", "", 0, matchedRuleID, true,
-									piiRedactedCount, piiCategoriesJSON)
+									piiRedactedCount, piiCategoriesJSON,
+									jbDetected, jbScore, jbCategory)
 								log.Printf("[SEMANTIC-CACHE] HIT for %s/%s sim=%.4f saved=$%.6f", provider, model, sim, entry.CostPerHit)
 								return
 							}
@@ -684,7 +729,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 			promptPreview, inputTokens, 0, 0, latencyMs,
 			http.StatusBadGateway, false, loopResult, errMsg,
 			originalProvider, originalModel, fallbackConfigID, matchedRuleID, false,
-			piiRedactedCount, piiCategoriesJSON)
+			piiRedactedCount, piiCategoriesJSON,
+			jbDetected, jbScore, jbCategory)
 		return
 	}
 	defer resp.Body.Close()
@@ -772,8 +818,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// ── Memory extraction (async — extract facts from conversation) ─────────
 	if !isStreaming && h.memoryStore != nil && h.memoryStore.IsEnabled() && h.cfg.MemoryEnabled &&
 		resp.StatusCode == http.StatusOK && responseBodyBytes != nil {
-		capturedBody := bodyBytes           // request body
-		capturedResp := responseBodyBytes   // response body
+		capturedBody := bodyBytes         // request body
+		capturedResp := responseBodyBytes // response body
 		capturedAgent := agentID
 		capturedSession := session.ID
 		capturedProvider := provider
@@ -799,7 +845,8 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		promptPreview, inputTokens, outputTokens, cost, latencyMs,
 		resp.StatusCode, isStreaming, loopResult, upstreamErrMsg,
 		originalProvider, originalModel, fallbackConfigID, matchedRuleID, false,
-		piiRedactedCount, piiCategoriesJSON)
+		piiRedactedCount, piiCategoriesJSON,
+		jbDetected, jbScore, jbCategory)
 
 }
 
@@ -825,27 +872,30 @@ func (h *Handler) persistAndBroadcast(
 	cacheHit bool,
 	piiRedactedCount int,
 	piiCategories string,
+	jailbreakDetected bool,
+	jailbreakScore float64,
+	jailbreakCategory string,
 ) {
 	eventID := uuid.New().String()
 
 	event := map[string]interface{}{
-		"type":           "request_event",
-		"id":             eventID,
-		"timestamp":      time.Now().Unix(),
-		"session_id":     session.ID,
-		"agent_id":       agentID,
-		"app_name":       appName,
-		"provider":       provider,
-		"model":          model,
-		"prompt_preview": promptPreview,
-		"input_tokens":   inputTokens,
-		"output_tokens":  outputTokens,
-		"cost":           cost,
-		"latency_ms":     latencyMs,
-		"status_code":    statusCode,
-		"is_streaming":   isStreaming,
-		"loop_detected":  loopResult.LoopDetected,
-		"loop_severity":  loopResult.Severity,
+		"type":               "request_event",
+		"id":                 eventID,
+		"timestamp":          time.Now().Unix(),
+		"session_id":         session.ID,
+		"agent_id":           agentID,
+		"app_name":           appName,
+		"provider":           provider,
+		"model":              model,
+		"prompt_preview":     promptPreview,
+		"input_tokens":       inputTokens,
+		"output_tokens":      outputTokens,
+		"cost":               cost,
+		"latency_ms":         latencyMs,
+		"status_code":        statusCode,
+		"is_streaming":       isStreaming,
+		"loop_detected":      loopResult.LoopDetected,
+		"loop_severity":      loopResult.Severity,
 		"error":              errorMessage,
 		"is_error":           errorMessage != "",
 		"original_provider":  originalProvider,
@@ -855,6 +905,8 @@ func (h *Handler) persistAndBroadcast(
 		"matched_rule_id":    matchedRuleID,
 		"cache_hit":          cacheHit,
 		"pii_redacted":       piiRedactedCount,
+		"jailbreak_detected": jailbreakDetected,
+		"jailbreak_score":    jailbreakScore,
 	}
 
 	log.Printf("[EVENT] agent=%s provider=%s model=%s in=%d out=%d cost=$%.6f latency=%dms status=%d loop=%v",
@@ -875,29 +927,32 @@ func (h *Handler) persistAndBroadcast(
 	// Acquire semaphore slot to bound concurrent persist goroutines.
 	dbWrite := func() {
 		row := store.RequestRow{
-			Timestamp:        time.Now(),
-			SessionID:        session.ID,
-			AgentID:          agentID,
-			AppName:          appName,
-			Provider:         provider,
-			Model:            model,
-			PromptPreview:    promptPreview,
-			InputTokens:      inputTokens,
-			OutputTokens:     outputTokens,
-			Cost:             cost,
-			LatencyMs:        latencyMs,
-			StatusCode:       statusCode,
+			Timestamp:         time.Now(),
+			SessionID:         session.ID,
+			AgentID:           agentID,
+			AppName:           appName,
+			Provider:          provider,
+			Model:             model,
+			PromptPreview:     promptPreview,
+			InputTokens:       inputTokens,
+			OutputTokens:      outputTokens,
+			Cost:              cost,
+			LatencyMs:         latencyMs,
+			StatusCode:        statusCode,
 			IsStreaming:       isStreaming,
-			LoopDetected:     loopResult.LoopDetected,
-			LoopSeverity:     loopResult.Severity,
-			ErrorMessage:     errorMessage,
-			OriginalProvider: originalProvider,
-			OriginalModel:    originalModel,
-			FallbackConfigID: fallbackConfigID,
-			MatchedRuleID:    matchedRuleID,
-			CacheHit:         cacheHit,
-			PIIRedactedCount: piiRedactedCount,
-			PIICategories:    piiCategories,
+			LoopDetected:      loopResult.LoopDetected,
+			LoopSeverity:      loopResult.Severity,
+			ErrorMessage:      errorMessage,
+			OriginalProvider:  originalProvider,
+			OriginalModel:     originalModel,
+			FallbackConfigID:  fallbackConfigID,
+			MatchedRuleID:     matchedRuleID,
+			CacheHit:          cacheHit,
+			PIIRedactedCount:  piiRedactedCount,
+			PIICategories:     piiCategories,
+			JailbreakDetected: jailbreakDetected,
+			JailbreakScore:    jailbreakScore,
+			JailbreakCategory: jailbreakCategory,
 		}
 		if err := h.db.InsertRequest(row); err != nil {
 			log.Printf("[DB] insert failed: %v", err)
@@ -987,9 +1042,9 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 			// Try to read exact usage from the final chunk (providers emit this just
 			// before [DONE]).  If found, overwrite our running totals with exact counts.
 			if exactIn, cached, exactOut, ok := extractUsageFromResponse([]byte(data), apiFormat); ok && exactOut > 0 {
-				inputTokens        = exactIn
-				cachedInputTokens  = cached
-				outputTokens       = exactOut
+				inputTokens = exactIn
+				cachedInputTokens = cached
+				outputTokens = exactOut
 			} else {
 				tokens, _ := h.tokenCounter.CountTokens(extractContentFromChunk(data, apiFormat), model)
 				outputTokens += tokens
@@ -1176,6 +1231,58 @@ func extractPrompt(messages []map[string]interface{}) string {
 	return ""
 }
 
+// messageText extracts the text of one message, handling OpenAI (content is a
+// string) and Anthropic (content is an array of {type:"text", text}) shapes.
+func messageText(m map[string]interface{}) string {
+	if content, ok := m["content"].(string); ok {
+		return content
+	}
+	if blocks, ok := m["content"].([]interface{}); ok {
+		var parts []string
+		for _, blk := range blocks {
+			if bm, ok := blk.(map[string]interface{}); ok && bm["type"] == "text" {
+				if t, ok := bm["text"].(string); ok {
+					parts = append(parts, t)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// extractConversationText builds the text sent to the jailbreak detector: the
+// system prompt plus every user-role message, joined with newlines and capped so
+// we never send an unbounded payload to the classifier. Falls back to the last
+// message if nothing else is available.
+func extractConversationText(reqData map[string]interface{}, messages []map[string]interface{}, apiFormat string) string {
+	const maxLen = 16 * 1024
+	var b strings.Builder
+	if sys := extractSystemPrompt(reqData, apiFormat); sys != "" {
+		b.WriteString(sys)
+		b.WriteByte('\n')
+	}
+	for _, m := range messages {
+		role, _ := m["role"].(string)
+		if role != "" && role != "user" {
+			continue // system handled above; skip assistant/tool turns
+		}
+		b.WriteString(messageText(m))
+		b.WriteByte('\n')
+		if b.Len() >= maxLen {
+			break
+		}
+	}
+	s := strings.TrimSpace(b.String())
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	if s == "" {
+		return extractPrompt(messages)
+	}
+	return s
+}
+
 func truncate(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
@@ -1279,7 +1386,7 @@ func extractUsageFromResponse(body []byte, apiFormat string) (inputTokens, cache
 		if usage == nil {
 			return 0, 0, 0, false
 		}
-		in  := int(toFloat(usage["prompt_tokens"]))
+		in := int(toFloat(usage["prompt_tokens"]))
 		out := int(toFloat(usage["completion_tokens"]))
 		if in == 0 && out == 0 {
 			return 0, 0, 0, false
@@ -1297,8 +1404,8 @@ func extractUsageFromResponse(body []byte, apiFormat string) (inputTokens, cache
 		if usage == nil {
 			return 0, 0, 0, false
 		}
-		in     := int(toFloat(usage["input_tokens"]))
-		out    := int(toFloat(usage["output_tokens"]))
+		in := int(toFloat(usage["input_tokens"]))
+		out := int(toFloat(usage["output_tokens"]))
 		cached := int(toFloat(usage["cache_read_input_tokens"]))
 		if in == 0 && out == 0 {
 			return 0, 0, 0, false
@@ -1312,8 +1419,8 @@ func extractUsageFromResponse(body []byte, apiFormat string) (inputTokens, cache
 		if meta == nil {
 			return 0, 0, 0, false
 		}
-		in     := int(toFloat(meta["promptTokenCount"]))
-		out    := int(toFloat(meta["candidatesTokenCount"]))
+		in := int(toFloat(meta["promptTokenCount"]))
+		out := int(toFloat(meta["candidatesTokenCount"]))
 		cached := int(toFloat(meta["cachedContentTokenCount"]))
 		if in == 0 && out == 0 {
 			return 0, 0, 0, false

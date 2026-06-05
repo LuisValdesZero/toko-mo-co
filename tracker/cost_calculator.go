@@ -39,9 +39,10 @@ func GetPricingStore() *PricingStore {
 // DB cache has no match. Previously named "modelPricing".
 //
 // Pricing sources:
-//   OpenAI   — https://platform.openai.com/docs/pricing
-//   Anthropic — https://www.anthropic.com/pricing
-//   Google   — https://ai.google.dev/pricing
+//
+//	OpenAI   — https://platform.openai.com/docs/pricing
+//	Anthropic — https://www.anthropic.com/pricing
+//	Google   — https://ai.google.dev/pricing
 var defaultModelPricing = map[string]ModelPricing{
 
 	// ── OpenAI GPT-5 family ───────────────────────────────────────────────────
@@ -273,6 +274,48 @@ var defaultModelPricing = map[string]ModelPricing{
 		CachedInputPer1M: 0,
 		OutputPer1M:      0.30,
 	},
+
+	// ── OpenRouter (https://openrouter.ai) ───────────────────────────────────
+	// OpenRouter is OpenAI-compatible and used via the seeded "openrouter" custom
+	// provider: requests use "openrouter/<id>"; the proxy strips the prefix and
+	// forwards "<id>" (e.g. "openai/gpt-4o") upstream — so pricing is keyed by the
+	// OpenRouter model id, not the bare name. Longest-prefix match wins, so a
+	// specific id ("openai/gpt-4o-mini") takes precedence over a shorter one
+	// ("openai/gpt-4o"). These are OpenRouter list prices (USD / 1M tokens) as of
+	// 2026-06; verify/edit/add more in Settings → Model Pricing. Anything not
+	// listed falls back to the generic mid-tier rate.
+	"openai/gpt-4o-mini":  {InputPer1M: 0.15, CachedInputPer1M: 0.075, OutputPer1M: 0.60},
+	"openai/gpt-4o":       {InputPer1M: 2.50, CachedInputPer1M: 1.25, OutputPer1M: 10.00},
+	"openai/gpt-4.1-mini": {InputPer1M: 0.40, CachedInputPer1M: 0.10, OutputPer1M: 1.60},
+	"openai/gpt-4.1":      {InputPer1M: 2.00, CachedInputPer1M: 0.50, OutputPer1M: 8.00},
+	"openai/o4-mini":      {InputPer1M: 1.10, CachedInputPer1M: 0.275, OutputPer1M: 4.40},
+	"openai/o3":           {InputPer1M: 10.00, CachedInputPer1M: 2.50, OutputPer1M: 40.00},
+
+	"anthropic/claude-3.5-haiku":  {InputPer1M: 0.80, CachedInputPer1M: 0.08, OutputPer1M: 4.00},
+	"anthropic/claude-3.5-sonnet": {InputPer1M: 3.00, CachedInputPer1M: 0.30, OutputPer1M: 15.00},
+	"anthropic/claude-3-opus":     {InputPer1M: 15.00, CachedInputPer1M: 1.50, OutputPer1M: 75.00},
+	"anthropic/claude-haiku-4.5":  {InputPer1M: 1.00, CachedInputPer1M: 0.10, OutputPer1M: 5.00},
+	"anthropic/claude-sonnet-4.5": {InputPer1M: 3.00, CachedInputPer1M: 0.30, OutputPer1M: 15.00},
+	"anthropic/claude-sonnet-4":   {InputPer1M: 3.00, CachedInputPer1M: 0.30, OutputPer1M: 15.00},
+	"anthropic/claude-opus-4.1":   {InputPer1M: 15.00, CachedInputPer1M: 1.50, OutputPer1M: 75.00},
+	"anthropic/claude-opus-4":     {InputPer1M: 15.00, CachedInputPer1M: 1.50, OutputPer1M: 75.00},
+
+	"google/gemini-2.5-pro":        {InputPer1M: 1.25, CachedInputPer1M: 0, OutputPer1M: 10.00},
+	"google/gemini-2.5-flash-lite": {InputPer1M: 0.10, CachedInputPer1M: 0, OutputPer1M: 0.40},
+	"google/gemini-2.5-flash":      {InputPer1M: 0.30, CachedInputPer1M: 0, OutputPer1M: 2.50},
+	"google/gemini-2.0-flash-001":  {InputPer1M: 0.10, CachedInputPer1M: 0, OutputPer1M: 0.40},
+
+	"meta-llama/llama-3.3-70b-instruct": {InputPer1M: 0.12, CachedInputPer1M: 0, OutputPer1M: 0.30},
+	"meta-llama/llama-3.1-8b-instruct":  {InputPer1M: 0.02, CachedInputPer1M: 0, OutputPer1M: 0.03},
+
+	"deepseek/deepseek-r1":   {InputPer1M: 0.55, CachedInputPer1M: 0, OutputPer1M: 2.19},
+	"deepseek/deepseek-chat": {InputPer1M: 0.14, CachedInputPer1M: 0, OutputPer1M: 0.28},
+
+	"mistralai/mistral-large":       {InputPer1M: 2.00, CachedInputPer1M: 0, OutputPer1M: 6.00},
+	"mistralai/mistral-nemo":        {InputPer1M: 0.04, CachedInputPer1M: 0, OutputPer1M: 0.04},
+	"mistralai/mistral-7b-instruct": {InputPer1M: 0.03, CachedInputPer1M: 0, OutputPer1M: 0.055},
+
+	"qwen/qwen-2.5-72b-instruct": {InputPer1M: 0.12, CachedInputPer1M: 0, OutputPer1M: 0.39},
 }
 
 // CalculateCost calculates the cost for a request.
@@ -283,9 +326,9 @@ var defaultModelPricing = map[string]ModelPricing{
 // non-cached count so they sum correctly).
 func CalculateCost(model string, inputTokens, cachedInputTokens, outputTokens int) float64 {
 	p := lookupPricing(model)
-	inputCost  := (float64(inputTokens)       / 1_000_000) * p.InputPer1M
+	inputCost := (float64(inputTokens) / 1_000_000) * p.InputPer1M
 	cachedCost := (float64(cachedInputTokens) / 1_000_000) * p.CachedInputPer1M
-	outputCost := (float64(outputTokens)      / 1_000_000) * p.OutputPer1M
+	outputCost := (float64(outputTokens) / 1_000_000) * p.OutputPer1M
 	return inputCost + cachedCost + outputCost
 }
 

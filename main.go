@@ -20,6 +20,7 @@ import (
 	"tokomoco/detector"
 	"tokomoco/embedding"
 	"tokomoco/memory"
+	"tokomoco/nemoguard"
 	"tokomoco/providers"
 	"tokomoco/proxy"
 	"tokomoco/reliability"
@@ -142,6 +143,13 @@ func main() {
 
 	// ── Custom Providers ───────────────────────────────────────────────────
 	providerStore := providers.NewProviderStore(db.DB())
+	// Seed a ready-to-use OpenRouter provider on first run (set OPENROUTER_API_KEY
+	// to use it; call models as openrouter/<id>).
+	if seededOR, err := providerStore.SeedOpenRouter(); err != nil {
+		log.Printf("[PROVIDERS] failed to seed OpenRouter: %v", err)
+	} else if seededOR {
+		log.Printf("[PROVIDERS] seeded OpenRouter provider (set OPENROUTER_API_KEY, then use model openrouter/<id>)")
+	}
 	providerAPI := providers.NewAPI(providerStore)
 	providerNames := providerStore.AllNames()
 	if len(providerNames) > 0 {
@@ -297,7 +305,17 @@ func main() {
 	r.Use(panicRecovery)
 	r.Use(securityHeaders)
 
-	proxyHandler := proxy.NewHandler(sessionTracker, loopDetector, wsHub, db, &cfg, rulesEngine, fallbackStore, responseCache, semanticCache, memoryStore, providerStore)
+	// ── NeMo Guard jailbreak detector (optional; enabled when CONFIG_NEMOGUARD_URL is set) ──
+	var nemoGuard *nemoguard.Detector
+	if cfg.NeMoGuardURL != "" {
+		nemoGuard = nemoguard.New(cfg.NeMoGuardURL, cfg.NeMoGuardClassifyPath, cfg.NeMoGuardAPIKey,
+			cfg.NeMoGuardMode, cfg.NeMoGuardThreshold, cfg.NeMoGuardTimeout())
+		log.Printf("[NEMOGUARD] enabled url=%s mode=%s", cfg.NeMoGuardURL, cfg.NeMoGuardMode)
+	} else {
+		log.Printf("[NEMOGUARD] disabled (set CONFIG_NEMOGUARD_URL to enable)")
+	}
+
+	proxyHandler := proxy.NewHandler(sessionTracker, loopDetector, wsHub, db, &cfg, rulesEngine, fallbackStore, responseCache, semanticCache, memoryStore, providerStore, nemoGuard)
 
 	// authWrap wraps a handler with API key auth middleware.
 	// When auth is disabled, this is a no-op passthrough.
@@ -466,6 +484,30 @@ func main() {
 	// Security API — enriched PII details (timeline, by-agent, recent)
 	r.Handle("/api/security/pii/details", authWrap(func(w http.ResponseWriter, r *http.Request) {
 		details := db.GetPIIDetails()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(details)
+	})).Methods("GET")
+
+	// Security API — NeMo Guard jailbreak detection analytics
+	r.Handle("/api/security/nemoguard", authWrap(func(w http.ResponseWriter, r *http.Request) {
+		stats := db.GetNemoGuardStats()
+		resp := map[string]interface{}{
+			"enabled":                cfg.NeMoGuardURL != "",
+			"mode":                   cfg.NeMoGuardMode,
+			"total_requests_scanned": stats.TotalRequestsScanned,
+			"jailbreaks_detected":    stats.JailbreaksDetected,
+			"blocked":                stats.Blocked,
+		}
+		if nemoGuard != nil {
+			resp["live"] = nemoGuard.Stats()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})).Methods("GET")
+
+	// Security API — enriched NeMo Guard details (timeline, by-agent, recent)
+	r.Handle("/api/security/nemoguard/details", authWrap(func(w http.ResponseWriter, r *http.Request) {
+		details := db.GetNemoGuardDetails()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(details)
 	})).Methods("GET")

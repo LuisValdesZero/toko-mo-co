@@ -503,6 +503,9 @@ function addFeedRow(data) {
     const piiBadge = (data.pii_redacted || 0) > 0
         ? `<span class="badge badge-pii" title="${data.pii_redacted} PII item(s) redacted">PII (${data.pii_redacted})</span>`
         : '';
+    const jailbreakBadge = data.jailbreak_detected
+        ? `<span class="badge badge-jailbreak" title="Jailbreak detected (NeMo Guard)">Jailbreak</span>`
+        : '';
 
     const costStr    = (data.cost || 0) < 0.0001 ? '<$0.0001' : `$${data.cost.toFixed(4)}`;
     const latencyStr = (data.latency_ms || 0) >= 1000
@@ -534,7 +537,7 @@ function addFeedRow(data) {
         <td class="col-cost">${costStr}</td>
         <td class="col-latency">${latencyStr}</td>
         <td class="col-status">${statusCell}</td>
-        <td class="col-flags">${cacheBadge}${piiBadge}${loopBadge}${errorBadge}${retryBadge}${fallbackBadge}${streamIcon}</td>`;
+        <td class="col-flags">${cacheBadge}${piiBadge}${jailbreakBadge}${loopBadge}${errorBadge}${retryBadge}${fallbackBadge}${streamIcon}</td>`;
 
     if (isReplayed) {
         // Replayed events arrive oldest-first, append them
@@ -1048,7 +1051,10 @@ function loadSecurityStats() {
     Promise.all([
         fetch('/api/security/pii').then(r => r.ok ? r.json() : null),
         fetch('/api/security/pii/details').then(r => r.ok ? r.json() : null),
-    ]).then(([summary, details]) => {
+        fetch('/api/security/nemoguard').then(r => r.ok ? r.json() : null),
+        fetch('/api/security/nemoguard/details').then(r => r.ok ? r.json() : null),
+    ]).then(([summary, details, ng, ngDetails]) => {
+        renderNemoGuard(ng, ngDetails);
         if (!summary) return;
 
         // ── Status badge ──────────────────────────────────────────
@@ -1298,6 +1304,50 @@ function renderSecRecentDetections(recent) {
     body.innerHTML = html;
 }
 
+// ── NeMo Guard (jailbreak) panel ──────────────────────────────────────────
+function renderNemoGuard(summary, details) {
+    if (summary) {
+        setText('secJailbreaks', (summary.jailbreaks_detected || 0).toLocaleString());
+        setText('secJailbreaksBlocked', (summary.blocked || 0).toLocaleString());
+        const st = document.getElementById('nemoGuardStatus');
+        if (st) st.textContent = summary.enabled ? `${summary.mode || 'block'} mode` : 'disabled';
+    }
+    renderNemoGuardRecent((details && details.recent) || []);
+}
+
+function renderNemoGuardRecent(recent) {
+    const body = document.getElementById('nemoGuardRecentBody');
+    if (!body) return;
+    setText('nemoGuardRecentCount', `${recent.length} flagged`);
+    if (recent.length === 0) {
+        body.innerHTML = '<tr class="feed-empty"><td colspan="6">No jailbreak attempts. Set CONFIG_NEMOGUARD_URL to enable detection.</td></tr>';
+        return;
+    }
+    let html = '';
+    recent.forEach(r => {
+        const d = new Date(r.timestamp * 1000);
+        const time = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+                     d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const agent = r.agent_id || 'unknown';
+        const pp = r.prompt_preview || '';
+        const preview = pp.length > 60 ? pp.slice(0, 60) + '…' : pp;
+        const blocked = r.status_code === 403;
+        const statusBadge = blocked
+            ? '<span class="badge badge-jailbreak">blocked</span>'
+            : '<span class="badge" style="font-size:10px;">flagged</span>';
+        const score = (typeof r.score === 'number' && r.score > 0) ? r.score.toFixed(2) : '—';
+        html += `<tr class="feed-row">
+            <td style="white-space:nowrap;font-size:11px;color:var(--text-muted);">${escapeHtml(time)}</td>
+            <td><span class="badge badge-agent" style="font-size:10px;">${escapeHtml(agent)}</span></td>
+            <td style="font-size:11px;color:var(--text-secondary);">${escapeHtml(r.model || '')}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-muted);" title="${escapeHtml(pp)}">${escapeHtml(preview)}</td>
+            <td style="text-align:right;font-family:var(--font-mono);font-size:12px;">${score}</td>
+            <td style="text-align:right;">${statusBadge}</td>
+        </tr>`;
+    });
+    body.innerHTML = html;
+}
+
 function startSecurityRefresh() {
     stopSecurityRefresh();
     securityRefreshTimer = setInterval(loadSecurityStats, 30_000);
@@ -1456,6 +1506,7 @@ function renderSessionDetail(data) {
 
         const cacheBadge = req.cache_hit ? '<span class="badge badge-cached">cached</span>' : '';
         const piiBadge = (req.pii_redacted || 0) > 0 ? `<span class="badge badge-pii">PII (${req.pii_redacted})</span>` : '';
+        const jailbreakBadge = req.jailbreak_detected ? '<span class="badge badge-jailbreak">Jailbreak</span>' : '';
         const loopBadge = req.loop_detected ? `<span class="badge badge-loop-${req.loop_severity || 'low'}">${req.loop_severity || 'loop'}</span>` : '';
         const errorBadge = req.error_message ? '<span class="badge badge-error">err</span>' : '';
         const fallbackBadge = req.fallback_used ? '<span class="badge badge-fallback">fallback</span>' : '';
@@ -1473,7 +1524,7 @@ function renderSessionDetail(data) {
                 <td class="col-cost">${costStr}</td>
                 <td class="col-latency">${latencyStr}</td>
                 <td class="col-status">${statusCell}</td>
-                <td class="col-flags">${cacheBadge}${piiBadge}${loopBadge}${errorBadge}${fallbackBadge}</td>
+                <td class="col-flags">${cacheBadge}${piiBadge}${jailbreakBadge}${loopBadge}${errorBadge}${fallbackBadge}</td>
             </tr>`;
     }).join('');
 }

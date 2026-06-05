@@ -32,6 +32,10 @@ type RuleContext struct {
 	// Prompt content
 	PromptPreview string
 	RawMessages   []map[string]interface{} // nil-safe; used by inject_prompt action
+
+	// NeMo Guard jailbreak verdict (set by the handler before evaluation; zero if disabled)
+	JailbreakDetected bool
+	JailbreakScore    float64
 }
 
 // RuleResult is returned by Engine.Evaluate().
@@ -53,7 +57,7 @@ type RuleResult struct {
 // Safe for concurrent use across goroutines.
 type Engine struct {
 	mu      sync.RWMutex
-	rules   []*Rule      // sorted priority DESC, id ASC; replaced atomically on reload
+	rules   []*Rule // sorted priority DESC, id ASC; replaced atomically on reload
 	limiter *RateLimiter
 	store   *RuleStore
 	stopCh  chan struct{}

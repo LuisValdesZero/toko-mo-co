@@ -87,6 +87,8 @@ func compileCondition(spec ConditionSpec, limiter *RateLimiter, ruleID int64) (C
 		}, nil
 	case CondLoopDetected:
 		return &loopDetectedCondition{}, nil
+	case CondJailbreak:
+		return &jailbreakCondition{op: spec.Op, threshold: spec.Threshold}, nil
 	default:
 		return nil, fmt.Errorf("unknown condition type: %q", spec.Type)
 	}
@@ -262,3 +264,20 @@ func (c *loopDetectedCondition) Evaluate(ctx *RuleContext) bool {
 	return ctx.LoopResult.LoopDetected
 }
 func (c *loopDetectedCondition) CondType() ConditionType { return CondLoopDetected }
+
+// ── Jailbreak condition (NeMo Guard verdict) ──────────────────────────────────
+// With no op, matches the boolean verdict (ctx.JailbreakDetected). With an op
+// (gt/gte/lt/lte/eq), compares the detector score against the threshold instead.
+
+type jailbreakCondition struct {
+	op        string
+	threshold float64
+}
+
+func (c *jailbreakCondition) Evaluate(ctx *RuleContext) bool {
+	if c.op == "" {
+		return ctx.JailbreakDetected
+	}
+	return evalOp(ctx.JailbreakScore, c.op, c.threshold)
+}
+func (c *jailbreakCondition) CondType() ConditionType { return CondJailbreak }

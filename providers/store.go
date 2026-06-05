@@ -201,6 +201,39 @@ func (ps *ProviderStore) Create(cp *CustomProvider) (int64, error) {
 	return id, nil
 }
 
+// SeedOpenRouter registers a ready-to-use OpenRouter provider on first run if one
+// named "openrouter" doesn't already exist. OpenRouter is OpenAI-compatible, so it
+// uses api_format "openai"; auth is read from the OPENROUTER_API_KEY env var at
+// request time (set it, or edit the stored auth header in Settings). Call models
+// as "openrouter/<id>" (e.g. "openrouter/openai/gpt-4o"). Idempotent — returns
+// true only when it created the provider.
+func (ps *ProviderStore) SeedOpenRouter() (bool, error) {
+	existing, err := ps.All()
+	if err != nil {
+		return false, err
+	}
+	for _, cp := range existing {
+		if cp.Name == "openrouter" {
+			return false, nil // already present (possibly user-edited) — leave it alone
+		}
+	}
+
+	cp := &CustomProvider{
+		Name:        "openrouter",
+		DisplayName: "OpenRouter",
+		BaseURL:     "https://openrouter.ai/api",
+		APIFormat:   "openai",
+		APIPath:     "/v1/chat/completions",
+		AuthEnvVar:  "OPENROUTER_API_KEY",
+		Models:      []string{},
+		Enabled:     true,
+	}
+	if _, err := ps.Create(cp); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Update modifies an existing custom provider. Validates before update.
 func (ps *ProviderStore) Update(cp *CustomProvider) error {
 	if err := Validate(cp); err != nil {
