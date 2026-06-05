@@ -47,7 +47,8 @@ func main() {
 	}
 
 	// ── Persistence ─────────────────────────────────────────────────────────
-	db, err := store.Open(cfg.DBPath)
+	// Postgres when CONFIG_DATABASE_URL is set; otherwise SQLite at CONFIG_DB_PATH.
+	db, err := store.Open(cfg.DatabaseURL, cfg.DBPath)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
@@ -456,7 +457,7 @@ func main() {
 			"total_requests_scanned":   stats.TotalRequestsScanned,
 			"requests_with_redactions": stats.RequestsWithRedactions,
 			"total_items_redacted":     stats.TotalItemsRedacted,
-			"categories":              stats.Categories,
+			"categories":               stats.Categories,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -521,24 +522,24 @@ func main() {
 		items := make([]map[string]interface{}, 0, len(requests))
 		for _, req := range requests {
 			item := map[string]interface{}{
-				"id":               req.ID,
-				"timestamp":        req.Timestamp.Unix(),
-				"agent_id":         req.AgentID,
-				"app_name":         req.AppName,
-				"provider":         req.Provider,
-				"model":            req.Model,
-				"prompt_preview":   req.PromptPreview,
-				"input_tokens":     req.InputTokens,
-				"output_tokens":    req.OutputTokens,
-				"cost":             req.Cost,
-				"latency_ms":       req.LatencyMs,
-				"status_code":      req.StatusCode,
-				"is_streaming":     req.IsStreaming,
-				"loop_detected":    req.LoopDetected,
-				"loop_severity":    req.LoopSeverity,
-				"error_message":    req.ErrorMessage,
-				"cache_hit":        req.CacheHit,
-				"pii_redacted":     req.PIIRedactedCount,
+				"id":             req.ID,
+				"timestamp":      req.Timestamp.Unix(),
+				"agent_id":       req.AgentID,
+				"app_name":       req.AppName,
+				"provider":       req.Provider,
+				"model":          req.Model,
+				"prompt_preview": req.PromptPreview,
+				"input_tokens":   req.InputTokens,
+				"output_tokens":  req.OutputTokens,
+				"cost":           req.Cost,
+				"latency_ms":     req.LatencyMs,
+				"status_code":    req.StatusCode,
+				"is_streaming":   req.IsStreaming,
+				"loop_detected":  req.LoopDetected,
+				"loop_severity":  req.LoopSeverity,
+				"error_message":  req.ErrorMessage,
+				"cache_hit":      req.CacheHit,
+				"pii_redacted":   req.PIIRedactedCount,
 			}
 			if req.OriginalProvider != "" {
 				item["original_provider"] = req.OriginalProvider
@@ -837,13 +838,13 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"agent_id":      acc.AgentID,
-			"total":         acc.TotalCount,
-			"success":       acc.SuccessCount,
-			"failure":       acc.FailureCount,
-			"partial":       acc.PartialCount,
-			"avg_score":     acc.AvgScore,
-			"success_rate":  acc.SuccessRate,
+			"agent_id":     acc.AgentID,
+			"total":        acc.TotalCount,
+			"success":      acc.SuccessCount,
+			"failure":      acc.FailureCount,
+			"partial":      acc.PartialCount,
+			"avg_score":    acc.AvgScore,
+			"success_rate": acc.SuccessRate,
 		})
 	})).Methods("GET")
 
@@ -973,10 +974,10 @@ func main() {
 			"version_b": map[string]interface{}{
 				"id": vB.ID, "content_hash": vB.ContentHash, "created_at": vB.CreatedAt.Unix(),
 			},
-			"changes":     len(diffLines),
-			"diff":        diffLines,
-			"lines_a":     len(linesA),
-			"lines_b":     len(linesB),
+			"changes": len(diffLines),
+			"diff":    diffLines,
+			"lines_a": len(linesA),
+			"lines_b": len(linesB),
 		})
 	})).Methods("GET")
 

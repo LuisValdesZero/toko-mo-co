@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -12,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx" (PostgreSQL)
+	_ "modernc.org/sqlite"             // database/sql driver "sqlite"
 )
 
 // DB wraps the SQLite connection.
@@ -20,28 +22,28 @@ import (
 // so concurrent goroutines never contend for SQLite's single-writer lock.
 // Reads are unaffected — WAL mode allows concurrent readers alongside one writer.
 type DB struct {
-	db      *sql.DB
+	db      *conn // dialect-aware handle (SQLite or Postgres); rebinds placeholders
 	writeMu sync.Mutex
 }
 
 // RequestRow is one row in the live feed / requests table.
 type RequestRow struct {
-	ID            int64
-	Timestamp     time.Time
-	SessionID     string
-	AgentID       string // X-Agent-ID header or inferred from User-Agent
-	AppName       string // X-App-Name header
-	Provider      string
-	Model         string
-	PromptPreview string
-	InputTokens   int
-	OutputTokens  int
-	Cost          float64
-	LatencyMs     int64
-	StatusCode    int
-	IsStreaming   bool
-	LoopDetected  bool
-	LoopSeverity  string
+	ID               int64
+	Timestamp        time.Time
+	SessionID        string
+	AgentID          string // X-Agent-ID header or inferred from User-Agent
+	AppName          string // X-App-Name header
+	Provider         string
+	Model            string
+	PromptPreview    string
+	InputTokens      int
+	OutputTokens     int
+	Cost             float64
+	LatencyMs        int64
+	StatusCode       int
+	IsStreaming      bool
+	LoopDetected     bool
+	LoopSeverity     string
 	ErrorMessage     string // non-empty for upstream errors (4xx/5xx/network)
 	OriginalProvider string // pre-fallback provider (empty if no fallback)
 	OriginalModel    string // pre-fallback model (empty if no fallback)
@@ -76,27 +78,65 @@ type AgentSummary struct {
 	LastSeen     time.Time
 }
 
-// Open opens (or creates) the SQLite database at the given path.
-// WAL mode is enabled for concurrent read/write performance.
-func Open(path string) (*DB, error) {
+// Open opens the configured database. When databaseURL is a non-empty Postgres
+// DSN (postgres://…) it uses PostgreSQL; otherwise it opens (or creates) the
+// SQLite database at sqlitePath. The returned *DB is dialect-aware and rebinds
+// placeholders for whichever backend is active.
+func Open(databaseURL, sqlitePath string) (*DB, error) {
+	if strings.TrimSpace(databaseURL) != "" {
+		return openPostgres(databaseURL)
+	}
+	return openSQLite(sqlitePath)
+}
+
+// openSQLite opens the SQLite backend. WAL mode allows concurrent readers
+// alongside a single writer.
+func openSQLite(path string) (*DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-
-	// SQLite in WAL mode allows concurrent readers alongside a single writer.
 	// Allow multiple connections so readers (dashboard queries, agent summaries,
-	// cache lookups) don't block behind writes (InsertRequest, prune jobs).
-	// The busy_timeout pragma (below) handles the rare case of write contention.
+	// cache lookups) don't block behind writes. busy_timeout (pragma) handles the
+	// rare case of write contention.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxLifetime(0) // keep connections alive for the process lifetime
 
-	d := &DB{db: db}
+	d := &DB{db: newConn(db, SQLite)}
 	if err := d.pragma(); err != nil {
 		return nil, err
 	}
 	if err := d.migrate(); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// openPostgres opens the PostgreSQL backend via pgx and ensures the pgvector
+// extension exists (the semantic-cache + memory tables use a native vector column).
+func openPostgres(dsn string) (*DB, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	// Postgres handles concurrent writers natively — use a real pool.
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(0)
+	// Bounded connect probe so a misconfigured/unreachable DB fails fast with a
+	// clear error instead of hanging the whole startup.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("postgres connect: %w", err)
+	}
+	if _, err := db.Exec(`CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		return nil, fmt.Errorf("enable pgvector extension (is it installed on the server?): %w", err)
+	}
+
+	d := &DB{db: newConn(db, Postgres)}
+	if err := d.migrate(); err != nil { // no SQLite pragmas on Postgres
 		return nil, err
 	}
 	return d, nil
@@ -132,7 +172,11 @@ func (d *DB) pragma() error {
 }
 
 func (d *DB) migrate() error {
-	_, err := d.db.Exec(`
+	dl := d.db.Dialect()
+	// One schema literal kept intact for readability; adapted to the active
+	// dialect (AUTOINCREMENT/BLOB) and executed statement-by-statement below,
+	// so it works on both SQLite and Postgres (pgx won't run multi-statement Exec).
+	schema := `
 	CREATE TABLE IF NOT EXISTS requests (
 		id             INTEGER PRIMARY KEY AUTOINCREMENT,
 		timestamp      INTEGER NOT NULL,
@@ -322,19 +366,29 @@ func (d *DB) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_prompt_versions_agent   ON prompt_versions(agent_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_prompt_versions_hash    ON prompt_versions(agent_id, content_hash);
 
-	`)
-	if err != nil {
-		return err
+	`
+	if dl == Postgres {
+		schema = strings.ReplaceAll(schema, "INTEGER PRIMARY KEY AUTOINCREMENT",
+			"BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY")
+		schema = strings.ReplaceAll(schema, "BLOB", "BYTEA")
+	}
+	for _, stmt := range splitSQLStatements(schema) {
+		if _, err := d.db.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate: %w", err)
+		}
 	}
 
-	// Safely add new columns to existing databases that predate agent identity.
-	// ALTER TABLE errors (column already exists) are intentionally ignored.
+	// Safely add columns to databases that predate agent identity (this also adds
+	// columns intentionally absent from the CREATE TABLE above, e.g. rules.evidence
+	// and requests.cache_hit). On SQLite duplicate-column errors are intentionally
+	// ignored; Postgres uses ADD COLUMN IF NOT EXISTS (a no-op on a fresh schema).
+	addCol := dl.AddColumn()
 	for _, col := range []struct{ table, name, def string }{
-		{"requests", "agent_id",      "TEXT NOT NULL DEFAULT ''"},
-		{"requests", "app_name",      "TEXT NOT NULL DEFAULT ''"},
+		{"requests", "agent_id", "TEXT NOT NULL DEFAULT ''"},
+		{"requests", "app_name", "TEXT NOT NULL DEFAULT ''"},
 		{"requests", "error_message", "TEXT NOT NULL DEFAULT ''"},
-		{"sessions", "agent_id",      "TEXT NOT NULL DEFAULT ''"},
-		{"sessions", "app_name",      "TEXT NOT NULL DEFAULT ''"},
+		{"sessions", "agent_id", "TEXT NOT NULL DEFAULT ''"},
+		{"sessions", "app_name", "TEXT NOT NULL DEFAULT ''"},
 		{"fallback_configs", "agent_id", "TEXT NOT NULL DEFAULT ''"},
 		{"requests", "original_provider", "TEXT NOT NULL DEFAULT ''"},
 		{"requests", "original_model", "TEXT NOT NULL DEFAULT ''"},
@@ -345,7 +399,7 @@ func (d *DB) migrate() error {
 		{"requests", "pii_categories", "TEXT NOT NULL DEFAULT ''"},
 		{"rules", "evidence", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		d.db.Exec(`ALTER TABLE ` + col.table + ` ADD COLUMN ` + col.name + ` ` + col.def) //nolint:errcheck
+		d.db.Exec(`ALTER TABLE ` + col.table + ` ` + addCol + ` ` + col.name + ` ` + col.def) //nolint:errcheck
 	}
 
 	// Partial indexes for hit-count queries — must be created AFTER the ALTER TABLE
@@ -369,14 +423,14 @@ func (d *DB) InsertRequest(r RequestRow) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.Exec(d.db.Dialect().Rebind(`
 		INSERT INTO requests
 			(timestamp, session_id, agent_id, app_name, provider, model, prompt_preview,
 			 input_tokens, output_tokens, cost, latency_ms, status_code,
 			 is_streaming, loop_detected, loop_severity, error_message,
 			 original_provider, original_model, fallback_config_id, matched_rule_id, cache_hit,
 			 pii_redacted_count, pii_categories)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
 		r.Timestamp.Unix(), r.SessionID, r.AgentID, r.AppName,
 		r.Provider, r.Model, r.PromptPreview,
 		r.InputTokens, r.OutputTokens, r.Cost, r.LatencyMs, r.StatusCode,
@@ -401,7 +455,7 @@ func (d *DB) InsertRequest(r RequestRow) error {
 	// that have used this session (e.g. "MarketAnalyst,SentimentAnalyst,TraderAgent").
 	// On conflict: append the new agent only if not already present, capped at 20
 	// entries to prevent unbounded growth on high-churn sessions.
-	_, err = tx.Exec(`
+	_, err = tx.Exec(d.db.Dialect().Rebind(`
 		INSERT INTO sessions
 			(session_id, agent_id, app_name, total_cost, input_tokens, output_tokens, request_count, start_time, last_seen)
 		VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
@@ -418,7 +472,7 @@ func (d *DB) InsertRequest(r RequestRow) error {
 			input_tokens  = sessions.input_tokens  + excluded.input_tokens,
 			output_tokens = sessions.output_tokens + excluded.output_tokens,
 			request_count = sessions.request_count + 1,
-			last_seen     = excluded.last_seen`,
+			last_seen     = excluded.last_seen`),
 		r.SessionID, safeAgent, r.AppName, r.Cost, r.InputTokens, r.OutputTokens, now, now,
 	)
 	if err != nil {
@@ -947,8 +1001,9 @@ func (d *DB) RuleRequests(ruleID int64, limit, offset int) ([]RequestRow, int, e
 // Close closes the database.
 func (d *DB) Close() error { return d.db.Close() }
 
-// DB returns the underlying *sql.DB connection for use by other packages (e.g., rules).
-func (d *DB) DB() *sql.DB { return d.db }
+// DB returns the dialect-aware query handle for use by other packages (e.g., rules).
+// It rebinds '?' placeholders for the active backend, so callers keep using '?'.
+func (d *DB) DB() Querier { return d.db }
 
 func boolInt(b bool) int {
 	if b {
@@ -1059,15 +1114,11 @@ func (d *DB) InsertAPIKey(name, hash, prefix, scopes string, expiresAt *time.Tim
 		expiry = expiresAt.Unix()
 	}
 
-	result, err := d.db.Exec(`
+	return d.db.InsertReturningID(`
 		INSERT INTO api_keys (name, key_hash, prefix, scopes, enabled, created_at, last_used, expires_at)
 		VALUES (?, ?, ?, ?, 1, ?, 0, ?)`,
 		name, hash, prefix, scopes, time.Now().Unix(), expiry,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // DeleteAPIKey permanently removes an API key.
@@ -1172,17 +1223,13 @@ func (d *DB) InsertModelPricing(r ModelPricingRow) (int64, error) {
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 
-	result, err := d.db.Exec(`
+	return d.db.InsertReturningID(`
 		INSERT INTO model_pricing (model_prefix, input_per_1m, cached_input_per_1m,
 			output_per_1m, provider, source, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		r.ModelPrefix, r.InputPer1M, r.CachedInputPer1M,
 		r.OutputPer1M, r.Provider, r.Source, time.Now().Unix(),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // UpdateModelPricing updates an existing model pricing entry.
@@ -1249,7 +1296,7 @@ type CacheRow struct {
 	Model           string
 	StatusCode      int
 	ResponseBody    []byte
-	ResponseHeaders string  // JSON-encoded map[string][]string
+	ResponseHeaders string // JSON-encoded map[string][]string
 	InputTokens     int
 	OutputTokens    int
 	CostPerHit      float64
@@ -1528,13 +1575,13 @@ type PIIAgentBreakdown struct {
 
 // PIIRecentDetection is a single request that had PII redactions.
 type PIIRecentDetection struct {
-	ID              int64          `json:"id"`
-	Timestamp       int64          `json:"timestamp"`
-	AgentID         string         `json:"agent_id"`
-	Model           string         `json:"model"`
-	PromptPreview   string         `json:"prompt_preview"`
-	PIIRedactedCount int           `json:"pii_redacted_count"`
-	PIICategories   map[string]int `json:"pii_categories"`
+	ID               int64          `json:"id"`
+	Timestamp        int64          `json:"timestamp"`
+	AgentID          string         `json:"agent_id"`
+	Model            string         `json:"model"`
+	PromptPreview    string         `json:"prompt_preview"`
+	PIIRedactedCount int            `json:"pii_redacted_count"`
+	PIICategories    map[string]int `json:"pii_categories"`
 }
 
 // PIIDetailStats holds enriched PII analytics for the details endpoint.
@@ -1626,7 +1673,8 @@ func (d *DB) SaveSettings(jsonData []byte) error {
 	defer d.writeMu.Unlock()
 
 	_, err := d.db.Exec(
-		`INSERT OR REPLACE INTO settings (id, data, updated_at) VALUES (1, ?, ?)`,
+		`INSERT INTO settings (id, data, updated_at) VALUES (1, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
 		string(jsonData), time.Now().Unix(),
 	)
 	return err
@@ -1692,7 +1740,7 @@ func (d *DB) RecordPromptVersion(agentID, appName, content, provider, model stri
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 
-	result, err := d.db.Exec(`
+	id, err := d.db.InsertReturningID(`
 		INSERT INTO prompt_versions (agent_id, app_name, content_hash, content, previous_hash, provider, model, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		agentID, appName, contentHash, content, lastHash, provider, model, time.Now().Unix(),
@@ -1700,7 +1748,6 @@ func (d *DB) RecordPromptVersion(agentID, appName, content, provider, model stri
 	if err != nil {
 		return 0, false, err
 	}
-	id, _ := result.LastInsertId()
 	return id, true, nil
 }
 
@@ -1785,8 +1832,8 @@ func (d *DB) PromptVersionsByAgent(agentID string) ([]PromptVersionRow, error) {
 
 // TimelineEvent is a unified event in the agent's learning timeline.
 type TimelineEvent struct {
-	Timestamp int64  `json:"timestamp"`
-	EventType string `json:"event_type"` // request, prompt_change, feedback, rule_triggered, memory_created
+	Timestamp int64                  `json:"timestamp"`
+	EventType string                 `json:"event_type"` // request, prompt_change, feedback, rule_triggered, memory_created
 	Detail    map[string]interface{} `json:"detail"`
 }
 
@@ -1938,7 +1985,7 @@ func sortTimelineEvents(events []TimelineEvent) {
 
 // DailyTrend holds aggregated metrics for one day.
 type DailyTrend struct {
-	Date         string  `json:"date"`     // YYYY-MM-DD
+	Date         string  `json:"date"` // YYYY-MM-DD
 	Requests     int     `json:"requests"`
 	Cost         float64 `json:"cost"`
 	InputTokens  int     `json:"input_tokens"`
@@ -1955,9 +2002,9 @@ func (d *DB) AgentTrends(agentID string, days int) ([]DailyTrend, error) {
 	}
 	cutoff := time.Now().AddDate(0, 0, -days).Unix()
 
-	rows, err := d.db.Query(`
+	rows, err := d.db.Query(fmt.Sprintf(`
 		SELECT
-			DATE(timestamp, 'unixepoch', 'localtime') AS day,
+			%s AS day,
 			COUNT(*) AS requests,
 			COALESCE(SUM(CASE WHEN cache_hit = 0 THEN cost ELSE 0 END), 0) AS cost,
 			COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -1968,7 +2015,7 @@ func (d *DB) AgentTrends(agentID string, days int) ([]DailyTrend, error) {
 		FROM requests
 		WHERE agent_id = ? AND timestamp >= ?
 		GROUP BY day
-		ORDER BY day ASC`, agentID, cutoff)
+		ORDER BY day ASC`, d.db.Dialect().EpochToDate("timestamp")), agentID, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -2074,16 +2121,12 @@ func (d *DB) InsertFeedback(f FeedbackRow) (int64, error) {
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 
-	result, err := d.db.Exec(`
+	return d.db.InsertReturningID(`
 		INSERT INTO feedback (session_id, request_id, agent_id, app_name, outcome, score, details, metadata, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		f.SessionID, f.RequestID, f.AgentID, f.AppName,
 		f.Outcome, f.Score, f.Details, f.Metadata, time.Now().Unix(),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 // QueryFeedback returns feedback filtered by optional agent_id, outcome, and time range.

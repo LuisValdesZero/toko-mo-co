@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"tokomoco/detector"
+	"tokomoco/store"
 	"tokomoco/tracker"
 
 	_ "modernc.org/sqlite"
@@ -45,7 +46,7 @@ func TestEngineBasicEvaluation(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -115,7 +116,7 @@ func TestRulePriority(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -171,7 +172,7 @@ func TestModelOverride(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -213,7 +214,7 @@ func TestInputTokensCondition(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -263,7 +264,7 @@ func TestLoopDetectedCondition(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -319,7 +320,7 @@ func TestCostSessionCondition(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -379,7 +380,7 @@ func TestDisabledRule(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -419,7 +420,7 @@ func TestScopedRule(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -468,7 +469,7 @@ func BenchmarkEngineEvaluate(b *testing.B) {
 		description TEXT, created_at INTEGER, updated_at INTEGER
 	)`)
 
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 
 	// Create 10 rules
 	for i := 0; i < 10; i++ {

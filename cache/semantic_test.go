@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"tokomoco/embedding"
+	"tokomoco/store"
 	"tokomoco/vectorstore"
 
 	_ "modernc.org/sqlite"
@@ -33,7 +34,7 @@ func testSemanticCache(t *testing.T) *SemanticCache {
 	t.Helper()
 	emb := embedding.NewMockEmbedder(64)
 	db := testSQLiteDB(t)
-	vs, err := vectorstore.New(db, 64, 1000)
+	vs, err := vectorstore.New(store.NewQuerier(db, store.SQLite), 64, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +99,8 @@ func TestSemanticCache_Stats(t *testing.T) {
 	sc := testSemanticCache(t)
 
 	sc.Store("query-a", "hash-a", "openai", "gpt-4o")
-	sc.Lookup("query-a", "openai", "gpt-4o")          // hit
-	sc.Lookup("query-miss", "openai", "gpt-4o")        // miss
+	sc.Lookup("query-a", "openai", "gpt-4o")    // hit
+	sc.Lookup("query-miss", "openai", "gpt-4o") // miss
 
 	stats := sc.Stats()
 	if !stats.Enabled {

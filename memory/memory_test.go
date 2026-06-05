@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"tokomoco/embedding"
+	dbstore "tokomoco/store"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,7 +34,7 @@ func testDB(t *testing.T) *sql.DB {
 func TestNewStore(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, err := NewStore(db, emb, 100, 0.7, true)
+	store, err := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.7, true)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestNewStore(t *testing.T) {
 func TestStoreFact_And_Search(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	// Store a fact
 	err := store.StoreFact("agent-1", "session-1", "The user prefers Go for backend development", "openai", "gpt-4o")
@@ -76,7 +77,7 @@ func TestStoreFact_And_Search(t *testing.T) {
 func TestSearch_AgentScoping(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "User prefers Python", "openai", "gpt-4o")
 	store.StoreFact("agent-2", "s2", "User prefers Python", "openai", "gpt-4o")
@@ -97,7 +98,7 @@ func TestSearch_AgentScoping(t *testing.T) {
 func TestSearch_NoMatch(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.9, true) // high threshold
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.9, true) // high threshold
 
 	store.StoreFact("agent-1", "s1", "User prefers Go", "openai", "gpt-4o")
 
@@ -111,7 +112,7 @@ func TestSearch_NoMatch(t *testing.T) {
 func TestSearch_Disabled(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, false) // disabled
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, false) // disabled
 
 	store.StoreFact("agent-1", "s1", "User prefers Go", "openai", "gpt-4o")
 
@@ -124,7 +125,7 @@ func TestSearch_Disabled(t *testing.T) {
 func TestDelete(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "User prefers Go", "openai", "gpt-4o")
 	if store.Count() != 1 {
@@ -145,7 +146,7 @@ func TestDelete(t *testing.T) {
 func TestDeleteByAgent(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "Fact A", "openai", "gpt-4o")
 	store.StoreFact("agent-1", "s2", "Fact B", "openai", "gpt-4o")
@@ -166,7 +167,7 @@ func TestDeleteByAgent(t *testing.T) {
 func TestFlush(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "Fact A", "openai", "gpt-4o")
 	store.StoreFact("agent-2", "s2", "Fact B", "openai", "gpt-4o")
@@ -180,7 +181,7 @@ func TestFlush(t *testing.T) {
 func TestEviction(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 3, 0.5, true) // max 3
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 3, 0.5, true) // max 3
 
 	store.StoreFact("agent-1", "s1", "Fact one about coding", "openai", "gpt-4o")
 	store.StoreFact("agent-1", "s2", "Fact two about testing", "openai", "gpt-4o")
@@ -195,7 +196,7 @@ func TestEviction(t *testing.T) {
 func TestDuplicateDetection(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "The user prefers Go", "openai", "gpt-4o")
 	store.StoreFact("agent-1", "s2", "The user prefers Go", "openai", "gpt-4o") // duplicate
@@ -208,7 +209,7 @@ func TestDuplicateDetection(t *testing.T) {
 func TestStats(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.7, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.7, true)
 
 	store.StoreFact("agent-1", "s1", "User prefers Python", "openai", "gpt-4o")
 	store.Search("User prefers Python", "agent-1", 5)
@@ -231,7 +232,7 @@ func TestStats(t *testing.T) {
 func TestListByAgent(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "Fact A from agent 1", "openai", "gpt-4o")
 	store.StoreFact("agent-1", "s2", "Fact B from agent 1", "openai", "gpt-4o")
@@ -252,7 +253,7 @@ func TestListByAgent(t *testing.T) {
 func TestCountByAgent(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "Fact X about testing", "openai", "gpt-4o")
 	store.StoreFact("agent-1", "s2", "Fact Y about building", "openai", "gpt-4o")
@@ -273,12 +274,12 @@ func TestWarmLoad(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
 
-	store1, _ := NewStore(db, emb, 100, 0.5, true)
+	store1, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 	store1.StoreFact("agent-1", "s1", "User prefers TypeScript", "openai", "gpt-4o")
 	store1.StoreFact("agent-2", "s2", "Team uses Docker containers", "openai", "gpt-4o")
 
 	// Create a new store from same DB → warm-load
-	store2, _ := NewStore(db, emb, 100, 0.5, true)
+	store2, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 	if store2.Count() != 2 {
 		t.Errorf("warm-load: expected 2 entries, got %d", store2.Count())
 	}
@@ -682,7 +683,7 @@ func sqrtF64(x float64) float64 {
 func TestAccessCountIncrement(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "The user prefers Go for backend development", "openai", "gpt-4o")
 
@@ -713,7 +714,7 @@ func TestAccessCountIncrement(t *testing.T) {
 func TestLastAccessedUpdate(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "The user prefers Go for backend development", "openai", "gpt-4o")
 
@@ -745,7 +746,7 @@ func TestLastAccessedUpdate(t *testing.T) {
 func TestRecencyWeightedScoring(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.3, true, WithRecencyLambda(0.05))
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.3, true, WithRecencyLambda(0.05))
 
 	// Store two facts with the exact same text to ensure identical vectors/similarity.
 	// We'll backdate one to make it old.
@@ -787,7 +788,7 @@ func TestRecencyWeightedScoring(t *testing.T) {
 func TestConflictResolution_Update(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true, WithConflictThreshold(0.85))
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true, WithConflictThreshold(0.85))
 
 	// Craft two vectors with cosine similarity ~0.90 (between 0.85 conflict threshold and 0.95 dedup)
 	vecA, vecB := craftVectors(0.90)
@@ -828,7 +829,7 @@ func TestConflictResolution_Update(t *testing.T) {
 func TestConflictResolution_SkipSimilar(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true, WithConflictThreshold(0.85))
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true, WithConflictThreshold(0.85))
 
 	// Craft two vectors with cosine similarity ~0.90
 	vecA, vecB := craftVectors(0.90)
@@ -890,7 +891,7 @@ func TestShouldReplace(t *testing.T) {
 func TestUpdateExistingEntry(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	// Store initial fact
 	vec, _ := emb.Embed("User prefers Python")
@@ -930,7 +931,7 @@ func TestUpdateExistingEntry(t *testing.T) {
 	}
 
 	// Verify DB persistence by creating new store from same DB
-	store2, _ := NewStore(db, emb, 100, 0.5, true)
+	store2, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 	if store2.Count() != 1 {
 		t.Fatalf("expected 1 entry from DB, got %d", store2.Count())
 	}
@@ -948,7 +949,7 @@ func TestPerAgentEviction(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
 	// Use StoreFactWithVector with distinct vectors to bypass conflict detection
-	store, _ := NewStore(db, emb, 6, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 6, 0.5, true)
 
 	// Create distinct vectors for each fact (orthogonal-ish)
 	vecs := [][]float32{
@@ -993,7 +994,7 @@ func TestPerAgentEviction(t *testing.T) {
 func TestTTLEviction(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 3, 0.5, true, WithTTLDays(90))
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 3, 0.5, true, WithTTLDays(90))
 
 	// Store 3 facts
 	store.StoreFact("agent-1", "s1", "Stale fact about old technology", "openai", "gpt-4o")
@@ -1037,7 +1038,7 @@ func TestTTLEviction(t *testing.T) {
 func TestEnhancedStats(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true, WithTTLDays(90))
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true, WithTTLDays(90))
 
 	// Store facts for 2 agents
 	store.StoreFact("agent-1", "s1", "Agent1 prefers Go for development", "openai", "gpt-4o")
@@ -1087,7 +1088,7 @@ func TestEnhancedStats(t *testing.T) {
 func TestNewStoreWithOptions(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, err := NewStore(db, emb, 100, 0.7, true,
+	store, err := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.7, true,
 		WithRecencyLambda(0.05),
 		WithConflictThreshold(0.90),
 		WithTTLDays(30),
@@ -1110,7 +1111,7 @@ func TestNewStoreWithOptions(t *testing.T) {
 func TestSearchResultHasScore(t *testing.T) {
 	db := testDB(t)
 	emb := embedding.NewMockEmbedder(4)
-	store, _ := NewStore(db, emb, 100, 0.5, true)
+	store, _ := NewStore(dbstore.NewQuerier(db, dbstore.SQLite), emb, 100, 0.5, true)
 
 	store.StoreFact("agent-1", "s1", "User prefers Go for backend development", "openai", "gpt-4o")
 

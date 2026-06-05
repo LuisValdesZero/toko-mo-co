@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"tokomoco/store"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -30,7 +32,7 @@ func testDB(t *testing.T) *sql.DB {
 
 func TestNew(t *testing.T) {
 	db := testDB(t)
-	vs, err := New(db, 4, 100)
+	vs, err := New(store.NewQuerier(db, store.SQLite), 4, 100)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -41,7 +43,7 @@ func TestNew(t *testing.T) {
 
 func TestStore_And_Search(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vec := []float32{0.5, 0.5, 0.5, 0.5}
 	vs.Store("hash-1", vec, "openai", "gpt-4o")
@@ -64,7 +66,7 @@ func TestStore_And_Search(t *testing.T) {
 
 func TestSearch_BelowThreshold(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vs.Store("hash-1", []float32{1, 0, 0, 0}, "openai", "gpt-4o")
 
@@ -76,7 +78,7 @@ func TestSearch_BelowThreshold(t *testing.T) {
 
 func TestSearch_ProviderScoping(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vec := []float32{0.5, 0.5, 0.5, 0.5}
 	vs.Store("hash-openai", vec, "openai", "gpt-4o")
@@ -102,7 +104,7 @@ func TestSearch_ProviderScoping(t *testing.T) {
 
 func TestSearch_BestMatch(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vs.Store("hash-far", []float32{1, 0, 0, 0}, "openai", "gpt-4o")
 	vs.Store("hash-close", []float32{0.5, 0.5, 0.5, 0.5}, "openai", "gpt-4o")
@@ -119,7 +121,7 @@ func TestSearch_BestMatch(t *testing.T) {
 
 func TestStore_Eviction(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 3)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 3)
 
 	vs.Store("hash-1", []float32{1, 0, 0, 0}, "openai", "gpt-4o")
 	vs.Store("hash-2", []float32{0, 1, 0, 0}, "openai", "gpt-4o")
@@ -133,7 +135,7 @@ func TestStore_Eviction(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vs.Store("hash-1", []float32{0.5, 0.5, 0.5, 0.5}, "openai", "gpt-4o")
 	vs.Delete("hash-1")
@@ -145,7 +147,7 @@ func TestDelete(t *testing.T) {
 
 func TestFlush(t *testing.T) {
 	db := testDB(t)
-	vs, _ := New(db, 4, 100)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	vs.Store("h1", []float32{1, 0, 0, 0}, "openai", "gpt-4o")
 	vs.Store("h2", []float32{0, 1, 0, 0}, "openai", "gpt-4o")
@@ -199,7 +201,7 @@ func TestFloat32Serialization(t *testing.T) {
 func TestWarmLoad(t *testing.T) {
 	db := testDB(t)
 
-	vs1, _ := New(db, 4, 100)
+	vs1, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 
 	// Persist synchronously to avoid race with test cleanup
 	vs1.persistToDB(&Entry{
@@ -218,7 +220,7 @@ func TestWarmLoad(t *testing.T) {
 	})
 
 	// Create a new VectorStore from same DB → warm-load
-	vs2, _ := New(db, 4, 100)
+	vs2, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
 	if vs2.Count() != 2 {
 		t.Errorf("warm-load: expected 2 entries, got %d", vs2.Count())
 	}

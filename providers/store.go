@@ -4,7 +4,6 @@
 package providers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tokomoco/store"
 )
 
 // reservedNames are provider names that cannot be used for custom providers.
@@ -37,13 +38,13 @@ var validFormats = map[string]bool{
 type CustomProvider struct {
 	ID          int64    `json:"id"`
 	Name        string   `json:"name"`         // routing key: "ollama", "deepseek"
-	DisplayName string   `json:"display_name"`  // "Ollama (Local)"
-	BaseURL     string   `json:"base_url"`      // "http://localhost:11434"
-	APIFormat   string   `json:"api_format"`    // "openai" | "anthropic"
-	APIPath     string   `json:"api_path"`      // "/v1/chat/completions"
-	AuthHeader  string   `json:"auth_header"`   // raw auth header value (optional)
-	AuthEnvVar  string   `json:"auth_env_var"`  // env var name for API key (optional)
-	Models      []string `json:"models"`        // known model names
+	DisplayName string   `json:"display_name"` // "Ollama (Local)"
+	BaseURL     string   `json:"base_url"`     // "http://localhost:11434"
+	APIFormat   string   `json:"api_format"`   // "openai" | "anthropic"
+	APIPath     string   `json:"api_path"`     // "/v1/chat/completions"
+	AuthHeader  string   `json:"auth_header"`  // raw auth header value (optional)
+	AuthEnvVar  string   `json:"auth_env_var"` // env var name for API key (optional)
+	Models      []string `json:"models"`       // known model names
 	Enabled     bool     `json:"enabled"`
 	CreatedAt   int64    `json:"created_at"`
 	UpdatedAt   int64    `json:"updated_at"`
@@ -81,14 +82,14 @@ func (cp *CustomProvider) ResolveAuthHeader() string {
 // The cache is keyed by provider name (lowercase) and only contains enabled providers.
 // Thread-safe via RWMutex — reads (hot path) use RLock, writes use Lock.
 type ProviderStore struct {
-	db    *sql.DB
+	db    store.Querier
 	mu    sync.RWMutex
 	cache map[string]*CustomProvider // name -> provider (enabled only)
 }
 
 // NewProviderStore creates a new store and loads all enabled providers into the cache.
 // Invalid rows are logged and skipped — never crashes on bad data.
-func NewProviderStore(db *sql.DB) *ProviderStore {
+func NewProviderStore(db store.Querier) *ProviderStore {
 	ps := &ProviderStore{
 		db:    db,
 		cache: make(map[string]*CustomProvider),
@@ -185,7 +186,7 @@ func (ps *ProviderStore) Create(cp *CustomProvider) (int64, error) {
 		enabled = 1
 	}
 
-	result, err := ps.db.Exec(`
+	id, err := ps.db.InsertReturningID(`
 		INSERT INTO custom_providers (name, display_name, base_url, api_format, api_path,
 		                              auth_header, auth_env_var, models_json, enabled, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -195,7 +196,6 @@ func (ps *ProviderStore) Create(cp *CustomProvider) (int64, error) {
 		return 0, fmt.Errorf("insert custom_providers: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
 	ps.ReloadCache()
 	log.Printf("[PROVIDERS] created: %s → %s (format=%s)", cp.Name, cp.BaseURL, cp.APIFormat)
 	return id, nil

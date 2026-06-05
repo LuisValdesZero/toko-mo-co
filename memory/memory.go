@@ -6,16 +6,16 @@
 //
 // Architecture:
 //
-//	1. After each successful LLM response, extract key facts asynchronously
-//	2. Embed each fact and store in SQLite (vector BLOB + metadata)
-//	3. Before each request, search for relevant memories by embedding the prompt
-//	4. Inject relevant memories as system context (transparent to the client)
+//  1. After each successful LLM response, extract key facts asynchronously
+//  2. Embed each fact and store in SQLite (vector BLOB + metadata)
+//  3. Before each request, search for relevant memories by embedding the prompt
+//  4. Inject relevant memories as system context (transparent to the client)
 //
 // Memories are scoped by agent_id so different agents maintain separate knowledge.
 package memory
 
 import (
-	"database/sql"
+	"fmt"
 	"log"
 	"math"
 	"strings"
@@ -23,22 +23,25 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pgvector/pgvector-go"
+
 	"tokomoco/embedding"
+	"tokomoco/store"
 )
 
 // Entry is a single stored memory fact.
 type Entry struct {
 	ID           int64     `json:"id"`
-	AgentID      string    `json:"agent_id"`      // Scoped to agent
-	SessionID    string    `json:"session_id"`     // Session it was extracted from
-	Fact         string    `json:"fact"`            // The extracted fact text
-	Vector       []float32 `json:"-"`               // Embedding vector (not exposed in JSON)
-	Provider     string    `json:"provider"`        // Provider context
-	Model        string    `json:"model"`           // Model context
+	AgentID      string    `json:"agent_id"`   // Scoped to agent
+	SessionID    string    `json:"session_id"` // Session it was extracted from
+	Fact         string    `json:"fact"`       // The extracted fact text
+	Vector       []float32 `json:"-"`          // Embedding vector (not exposed in JSON)
+	Provider     string    `json:"provider"`   // Provider context
+	Model        string    `json:"model"`      // Model context
 	CreatedAt    time.Time `json:"created_at"`
-	LastAccessed time.Time `json:"last_accessed"`   // Updated on every search hit
-	AccessCount  int64     `json:"access_count"`    // Incremented on each retrieval
-	UpdatedAt    time.Time `json:"updated_at"`      // Set when fact is replaced via conflict resolution
+	LastAccessed time.Time `json:"last_accessed"` // Updated on every search hit
+	AccessCount  int64     `json:"access_count"`  // Incremented on each retrieval
+	UpdatedAt    time.Time `json:"updated_at"`    // Set when fact is replaced via conflict resolution
 }
 
 // SearchResult is a memory match from a similarity search.
@@ -54,7 +57,8 @@ type Store struct {
 	mu         sync.RWMutex
 	entries    []*Entry // in-memory for fast search
 	embedder   embedding.Embedder
-	db         *sql.DB
+	db         store.Querier
+	pg         bool // true when the backend is Postgres (native pgvector storage)
 	dims       int
 	maxEntries int
 	threshold  float64 // similarity threshold for retrieval (default: 0.7)
@@ -104,7 +108,7 @@ func WithTTLDays(days int) StoreOption {
 }
 
 // NewStore creates a memory store backed by SQLite.
-func NewStore(db *sql.DB, embedder embedding.Embedder, maxEntries int, threshold float64, enabled bool, opts ...StoreOption) (*Store, error) {
+func NewStore(db store.Querier, embedder embedding.Embedder, maxEntries int, threshold float64, enabled bool, opts ...StoreOption) (*Store, error) {
 	if threshold <= 0 || threshold > 1 {
 		threshold = 0.7 // lower than semantic cache — memories are more loosely related
 	}
@@ -116,6 +120,7 @@ func NewStore(db *sql.DB, embedder embedding.Embedder, maxEntries int, threshold
 		entries:        make([]*Entry, 0),
 		embedder:       embedder,
 		db:             db,
+		pg:             db.Dialect() == store.Postgres,
 		dims:           embedder.Dimensions(),
 		maxEntries:     maxEntries,
 		threshold:      threshold,
@@ -138,31 +143,40 @@ func NewStore(db *sql.DB, embedder embedding.Embedder, maxEntries int, threshold
 
 // migrate creates the memory_entries table if it doesn't exist.
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS memory_entries (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	dl := s.db.Dialect()
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS memory_entries (
+			%s,
 			agent_id   TEXT    NOT NULL DEFAULT '',
 			session_id TEXT    NOT NULL DEFAULT '',
 			fact       TEXT    NOT NULL,
-			vector     BLOB   NOT NULL,
+			vector     %s     NOT NULL,
 			provider   TEXT   NOT NULL DEFAULT '',
 			model      TEXT   NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_memory_agent   ON memory_entries(agent_id);
-		CREATE INDEX IF NOT EXISTS idx_memory_session ON memory_entries(session_id);
-	`)
-	if err != nil {
-		return err
+		)`, dl.AutoIncPK(), dl.VectorCol(s.dims)),
+		`CREATE INDEX IF NOT EXISTS idx_memory_agent   ON memory_entries(agent_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_session ON memory_entries(session_id)`,
+	}
+	if s.pg {
+		// Cosine ANN index — available for future SQL-side search (warm-load +
+		// in-Go scoring is still used at runtime for the recency/conflict logic).
+		stmts = append(stmts, `CREATE INDEX IF NOT EXISTS idx_memory_vector ON memory_entries USING hnsw (vector vector_cosine_ops)`)
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return err
+		}
 	}
 
-	// Add columns for enhanced memory layer (safe — silently fails if already exists)
+	// Add columns for the enhanced memory layer (idempotent).
+	addCol := dl.AddColumn()
 	for _, col := range []struct{ name, def string }{
 		{"last_accessed", "INTEGER NOT NULL DEFAULT 0"},
 		{"access_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
 	} {
-		s.db.Exec(`ALTER TABLE memory_entries ADD COLUMN ` + col.name + ` ` + col.def) //nolint:errcheck
+		s.db.Exec(`ALTER TABLE memory_entries ` + addCol + ` ` + col.name + ` ` + col.def) //nolint:errcheck
 	}
 
 	// Index for TTL-based eviction queries
@@ -189,15 +203,25 @@ func (s *Store) warmLoad() {
 	for rows.Next() {
 		var e Entry
 		var vecBytes []byte
+		var vecPG pgvector.Vector
 		var createdAt, lastAccessed, accessCount, updatedAt int64
 
-		if err := rows.Scan(&e.ID, &e.AgentID, &e.SessionID, &e.Fact, &vecBytes, &e.Provider, &e.Model,
+		// Scan the vector column into the right target for the backend.
+		vecTarget := any(&vecBytes)
+		if s.pg {
+			vecTarget = &vecPG
+		}
+		if err := rows.Scan(&e.ID, &e.AgentID, &e.SessionID, &e.Fact, vecTarget, &e.Provider, &e.Model,
 			&createdAt, &lastAccessed, &accessCount, &updatedAt); err != nil {
 			log.Printf("[MEMORY] scan error: %v", err)
 			continue
 		}
 
-		e.Vector = bytesToFloat32(vecBytes)
+		if s.pg {
+			e.Vector = vecPG.Slice()
+		} else {
+			e.Vector = bytesToFloat32(vecBytes)
+		}
 		if len(e.Vector) != s.dims {
 			continue // dimension mismatch, skip stale entry
 		}
@@ -507,9 +531,8 @@ func (s *Store) updateExistingEntry(existing *Entry, newFact string, newVector [
 	s.mu.Unlock()
 
 	// Persist to DB
-	vecBytes := float32ToBytes(newVector)
 	_, err := s.db.Exec(`UPDATE memory_entries SET fact = ?, vector = ?, updated_at = ? WHERE id = ?`,
-		newFact, vecBytes, now.Unix(), existing.ID)
+		newFact, s.encVec(newVector), now.Unix(), existing.ID)
 	if err != nil {
 		return err
 	}
@@ -620,19 +643,19 @@ type Stats struct {
 	MaxEntries int     `json:"max_entries"`
 
 	// Enhanced analytics
-	Updated        int64              `json:"updated"`          // Conflict resolution updates
-	Evicted        int64              `json:"evicted"`          // Eviction count
-	AgentBreakdown []AgentMemoryStats `json:"agent_breakdown"`  // Per-agent stats
-	TopMemories    []MemoryDetail     `json:"top_memories"`     // Most-accessed memories (top 10)
-	StaleCount     int                `json:"stale_count"`      // Memories not accessed in TTL
+	Updated        int64              `json:"updated"`         // Conflict resolution updates
+	Evicted        int64              `json:"evicted"`         // Eviction count
+	AgentBreakdown []AgentMemoryStats `json:"agent_breakdown"` // Per-agent stats
+	TopMemories    []MemoryDetail     `json:"top_memories"`    // Most-accessed memories (top 10)
+	StaleCount     int                `json:"stale_count"`     // Memories not accessed in TTL
 }
 
 // AgentMemoryStats holds per-agent memory statistics.
 type AgentMemoryStats struct {
-	AgentID     string `json:"agent_id"`
-	MemoryCount int    `json:"memory_count"`
-	TotalAccess int64  `json:"total_access"`
-	LastActivity int64 `json:"last_activity"` // unix timestamp
+	AgentID      string `json:"agent_id"`
+	MemoryCount  int    `json:"memory_count"`
+	TotalAccess  int64  `json:"total_access"`
+	LastActivity int64  `json:"last_activity"` // unix timestamp
 }
 
 // MemoryDetail is a single memory with access metadata, for analytics display.
@@ -748,17 +771,21 @@ func (s *Store) GetStats() Stats {
 
 // persistToDB writes a memory entry to SQLite and returns the auto-increment ID.
 func (s *Store) persistToDB(entry *Entry) (int64, error) {
-	vecBytes := float32ToBytes(entry.Vector)
-	result, err := s.db.Exec(`
+	return s.db.InsertReturningID(`
 		INSERT INTO memory_entries (agent_id, session_id, fact, vector, provider, model, created_at, last_accessed, access_count, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		entry.AgentID, entry.SessionID, entry.Fact, vecBytes, entry.Provider, entry.Model,
+		entry.AgentID, entry.SessionID, entry.Fact, s.encVec(entry.Vector), entry.Provider, entry.Model,
 		entry.CreatedAt.Unix(), entry.LastAccessed.Unix(), entry.AccessCount, entry.UpdatedAt.Unix(),
 	)
-	if err != nil {
-		return 0, err
+}
+
+// encVec encodes a vector for the active backend: a native pgvector value for
+// Postgres, or float32 BLOB bytes for SQLite.
+func (s *Store) encVec(v []float32) any {
+	if s.pg {
+		return pgvector.NewVector(v)
 	}
-	return result.LastInsertId()
+	return float32ToBytes(v)
 }
 
 // evictForAgent removes the best eviction candidate for the given agent.

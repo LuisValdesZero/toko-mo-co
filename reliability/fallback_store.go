@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"tokomoco/store"
 )
 
 // FallbackOption represents a single fallback target in a chain
@@ -29,11 +31,11 @@ type FallbackConfig struct {
 
 // FallbackStore provides database operations for fallback configurations
 type FallbackStore struct {
-	db *sql.DB
+	db store.Querier
 }
 
 // NewFallbackStore creates a new FallbackStore
-func NewFallbackStore(db *sql.DB) *FallbackStore {
+func NewFallbackStore(db store.Querier) *FallbackStore {
 	return &FallbackStore{db: db}
 }
 
@@ -125,15 +127,14 @@ func (s *FallbackStore) Create(cfg *FallbackConfig) (int64, error) {
 	}
 
 	now := time.Now().Unix()
-	result, err := s.db.Exec(`
+	enabledInt := 0
+	if cfg.Enabled {
+		enabledInt = 1
+	}
+	return s.db.InsertReturningID(`
 		INSERT INTO fallback_configs (agent_id, source_provider, source_model, fallback_chain, enabled, priority, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, cfg.AgentID, cfg.SourceProvider, cfg.SourceModel, string(chainJSON), cfg.Enabled, cfg.Priority, now, now)
-
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
+	`, cfg.AgentID, cfg.SourceProvider, cfg.SourceModel, string(chainJSON), enabledInt, cfg.Priority, now, now)
 }
 
 // Update modifies an existing fallback configuration
@@ -144,11 +145,15 @@ func (s *FallbackStore) Update(cfg *FallbackConfig) error {
 	}
 
 	now := time.Now().Unix()
+	enabledInt := 0
+	if cfg.Enabled {
+		enabledInt = 1
+	}
 	_, err = s.db.Exec(`
 		UPDATE fallback_configs
 		SET agent_id = ?, source_provider = ?, source_model = ?, fallback_chain = ?, enabled = ?, priority = ?, updated_at = ?
 		WHERE id = ?
-	`, cfg.AgentID, cfg.SourceProvider, cfg.SourceModel, string(chainJSON), cfg.Enabled, cfg.Priority, now, cfg.ID)
+	`, cfg.AgentID, cfg.SourceProvider, cfg.SourceModel, string(chainJSON), enabledInt, cfg.Priority, now, cfg.ID)
 
 	return err
 }

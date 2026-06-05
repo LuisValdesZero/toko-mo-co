@@ -1,8 +1,10 @@
 package rules
 
 import (
-	"tokomoco/tracker"
 	"testing"
+
+	"tokomoco/store"
+	"tokomoco/tracker"
 )
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -14,7 +16,7 @@ import (
 func TestCondition_AgentID_Exact(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -51,7 +53,7 @@ func TestCondition_AgentID_Exact(t *testing.T) {
 func TestCondition_AgentID_Glob(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -88,7 +90,7 @@ func TestCondition_AgentID_Glob(t *testing.T) {
 func TestCondition_AgentID_Regex(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -125,7 +127,7 @@ func TestCondition_AgentID_Regex(t *testing.T) {
 func TestCondition_AppName(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -154,7 +156,7 @@ func TestCondition_AppName(t *testing.T) {
 func TestCondition_Model_Exact(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -183,7 +185,7 @@ func TestCondition_Model_Exact(t *testing.T) {
 func TestCondition_Provider(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -212,7 +214,7 @@ func TestCondition_Provider(t *testing.T) {
 func TestCondition_InputTokens_GreaterThan(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -267,11 +269,11 @@ func TestCondition_InputTokens_AllOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		db := setupTestDB(t)
-		store := NewRuleStore(db)
+		store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 		engine, err := NewEngine(store)
-	if err != nil {
-		t.Fatalf("failed to create engine: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("failed to create engine: %v", err)
+		}
 
 		rule := &Rule{
 			Name:     "Token operator test",
@@ -301,7 +303,7 @@ func TestCondition_InputTokens_AllOperators(t *testing.T) {
 func TestCondition_CostSession(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -337,7 +339,7 @@ func TestCondition_CostSession(t *testing.T) {
 func TestCondition_PromptContent_Keyword(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -366,7 +368,7 @@ func TestCondition_PromptContent_Keyword(t *testing.T) {
 func TestCondition_PromptContent_Regex(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -400,7 +402,7 @@ func TestCondition_PromptContent_Regex(t *testing.T) {
 func TestAction_Block(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -443,7 +445,7 @@ func TestAction_Block(t *testing.T) {
 func TestAction_OverrideModel(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -482,7 +484,7 @@ func TestAction_OverrideModel(t *testing.T) {
 func TestAction_InjectPrompt(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -521,7 +523,7 @@ func TestAction_InjectPrompt(t *testing.T) {
 func TestAction_Redirect(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -560,7 +562,7 @@ func TestAction_Redirect(t *testing.T) {
 func TestAction_RateLimit(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -575,12 +577,12 @@ func TestAction_RateLimit(t *testing.T) {
 			{Type: CondAgentID, Value: "rate-limited-agent", Mode: MatchExact},
 		},
 		Action: ActionSpec{
-			Type:                  ActionRateLimit,
-			BlockStatus:           429,
-			BlockMessage:          "Rate limit exceeded",
-			RateLimitRequests:     5,
-			RateLimitWindowSec:    60,
-			RateLimitScope:        "agent",
+			Type:               ActionRateLimit,
+			BlockStatus:        429,
+			BlockMessage:       "Rate limit exceeded",
+			RateLimitRequests:  5,
+			RateLimitWindowSec: 60,
+			RateLimitScope:     "agent",
 		},
 	}
 	store.Create(rule)
@@ -614,7 +616,7 @@ func TestAction_RateLimit(t *testing.T) {
 func TestMultipleConditions_AND(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -661,7 +663,7 @@ func TestMultipleConditions_AND(t *testing.T) {
 func TestComplexRule_ProductionScenario(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -729,7 +731,7 @@ func TestComplexRule_ProductionScenario(t *testing.T) {
 func TestEdgeCase_EmptyConditions(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -756,7 +758,7 @@ func TestEdgeCase_EmptyConditions(t *testing.T) {
 func TestEdgeCase_NilSession(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
@@ -786,7 +788,7 @@ func TestEdgeCase_NilSession(t *testing.T) {
 func TestEdgeCase_ZeroThreshold(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	store := NewRuleStore(db)
+	store := NewRuleStore(store.NewQuerier(db, store.SQLite))
 	engine, err := NewEngine(store)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)

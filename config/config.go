@@ -22,62 +22,63 @@ import (
 //  3. Default value
 type Config struct {
 	// Server
-	Port           string `json:"port"`             // HTTP listen port (default: 8080)
-	AllowedOrigins string `json:"allowed_origins"`  // CORS origins for WS ("*" or "http://localhost:3000,…")
+	Port           string `json:"port"`            // HTTP listen port (default: 8080)
+	AllowedOrigins string `json:"allowed_origins"` // CORS origins for WS ("*" or "http://localhost:3000,…")
 
 	// Database
-	DBPath     string `json:"db_path"`      // SQLite file path (default: proxy.db)
-	DBKeepDays int    `json:"db_keep_days"` // Days of request history to retain (default: 30)
+	DBPath      string `json:"db_path"`      // SQLite file path (default: proxy.db)
+	DatabaseURL string `json:"database_url"` // Postgres DSN (postgres://...). When set, Postgres is used instead of SQLite.
+	DBKeepDays  int    `json:"db_keep_days"` // Days of request history to retain (default: 30)
 
 	// Upstream timeouts
 	UpstreamTimeoutSec int `json:"upstream_timeout_sec"` // Upstream HTTP timeout (default: 300)
 
 	// Loop detection
-	LoopThreshold        int     `json:"loop_threshold"`         // Similar requests before flagging (default: 3)
-	LoopSimilarity       float64 `json:"loop_similarity"`        // Similarity threshold 0–1 (default: 0.8)
-	LoopWindowMinutes    int     `json:"loop_window_minutes"`    // Rolling window for loop detection (default: 5)
+	LoopThreshold     int     `json:"loop_threshold"`      // Similar requests before flagging (default: 3)
+	LoopSimilarity    float64 `json:"loop_similarity"`     // Similarity threshold 0–1 (default: 0.8)
+	LoopWindowMinutes int     `json:"loop_window_minutes"` // Rolling window for loop detection (default: 5)
 
 	// Dashboard
-	HistoryLimit   int `json:"history_limit"`    // Requests replayed to new WS clients (default: 200)
+	HistoryLimit   int `json:"history_limit"`         // Requests replayed to new WS clients (default: 200)
 	SessionMaxAge  int `json:"session_max_age_hours"` // Hours before idle sessions are evicted (default: 24)
-	SessionMaxSize int `json:"session_max_size"` // Max in-memory sessions (LRU cap, default: 10000)
+	SessionMaxSize int `json:"session_max_size"`      // Max in-memory sessions (LRU cap, default: 10000)
 
 	// Injection
-	InjectionMode        string  `json:"injection_mode"`         // "metadata" | "content" | "hybrid" (default: metadata)
-	ContentThreshold     float64 `json:"content_threshold_usd"`  // Cost to escalate to content injection (default: 10.0)
+	InjectionMode    string  `json:"injection_mode"`        // "metadata" | "content" | "hybrid" (default: metadata)
+	ContentThreshold float64 `json:"content_threshold_usd"` // Cost to escalate to content injection (default: 10.0)
 
 	// Rules Engine
-	RulesEnabled         bool    `json:"rules_enabled"`          // Enable the rules engine (default: true)
+	RulesEnabled bool `json:"rules_enabled"` // Enable the rules engine (default: true)
 
 	// Retry & Fallback
-	RetryEnabled         bool    `json:"retry_enabled"`          // Enable automatic retries (default: true)
-	RetryMaxAttempts     int     `json:"retry_max_attempts"`     // Max retry attempts (default: 3)
-	RetryInitialDelay    int     `json:"retry_initial_delay_ms"` // Initial retry delay in ms (default: 1000)
-	RetryMaxDelay        int     `json:"retry_max_delay_ms"`     // Max retry delay in ms (default: 30000)
-	FallbackEnabled      bool    `json:"fallback_enabled"`       // Enable fallback to alternate providers (default: false)
-	FallbackStrategy     string  `json:"fallback_strategy"`      // "any" | "same_tier" | "cheaper" (default: same_tier)
+	RetryEnabled      bool   `json:"retry_enabled"`          // Enable automatic retries (default: true)
+	RetryMaxAttempts  int    `json:"retry_max_attempts"`     // Max retry attempts (default: 3)
+	RetryInitialDelay int    `json:"retry_initial_delay_ms"` // Initial retry delay in ms (default: 1000)
+	RetryMaxDelay     int    `json:"retry_max_delay_ms"`     // Max retry delay in ms (default: 30000)
+	FallbackEnabled   bool   `json:"fallback_enabled"`       // Enable fallback to alternate providers (default: false)
+	FallbackStrategy  string `json:"fallback_strategy"`      // "any" | "same_tier" | "cheaper" (default: same_tier)
 
 	// Authentication
-	AuthEnabled          bool    `json:"auth_enabled"`           // Require API keys for proxy endpoints (default: false)
+	AuthEnabled bool `json:"auth_enabled"` // Require API keys for proxy endpoints (default: false)
 
 	// Response Cache
-	CacheEnabled     bool `json:"cache_enabled"`      // Enable response cache (default: true)
-	CacheMaxEntries  int  `json:"cache_max_entries"`   // Max cached responses (default: 1000)
-	CacheTTLMinutes  int  `json:"cache_ttl_minutes"`   // Default TTL in minutes (default: 60)
-	CacheOnlyTemp0   bool `json:"cache_only_temp0"`    // Only cache temperature=0 requests (default: true)
+	CacheEnabled    bool `json:"cache_enabled"`     // Enable response cache (default: true)
+	CacheMaxEntries int  `json:"cache_max_entries"` // Max cached responses (default: 1000)
+	CacheTTLMinutes int  `json:"cache_ttl_minutes"` // Default TTL in minutes (default: 60)
+	CacheOnlyTemp0  bool `json:"cache_only_temp0"`  // Only cache temperature=0 requests (default: true)
 
 	// Security — PII Redaction
-	PIIEnabled    bool   `json:"pii_enabled"`     // Enable PII/secret redaction (default: false)
-	PIIMode       string `json:"pii_mode"`        // "redact" | "hash" | "placeholder" (default: "redact")
-	PIICategories string `json:"pii_categories"`  // Comma-separated enabled category keys (default: all)
+	PIIEnabled    bool   `json:"pii_enabled"`    // Enable PII/secret redaction (default: false)
+	PIIMode       string `json:"pii_mode"`       // "redact" | "hash" | "placeholder" (default: "redact")
+	PIICategories string `json:"pii_categories"` // Comma-separated enabled category keys (default: all)
 
 	// Semantic Cache
-	SemanticCacheEnabled   bool    `json:"semantic_cache_enabled"`   // Enable embedding-based cache (default: false)
-	SemanticCacheThreshold float64 `json:"semantic_cache_threshold"` // Cosine similarity threshold 0–1 (default: 0.95)
-	SemanticCacheMaxVectors int    `json:"semantic_cache_max_vectors"` // Max stored vectors (default: 10000)
-	EmbeddingProvider      string  `json:"embedding_provider"`       // "openai" (default: openai)
-	EmbeddingModel         string  `json:"embedding_model"`          // Embedding model name (default: text-embedding-3-small)
-	EmbeddingAPIKey        string  `json:"embedding_api_key"`        // Embedding API key (falls back to OPENAI_API_KEY)
+	SemanticCacheEnabled    bool    `json:"semantic_cache_enabled"`     // Enable embedding-based cache (default: false)
+	SemanticCacheThreshold  float64 `json:"semantic_cache_threshold"`   // Cosine similarity threshold 0–1 (default: 0.95)
+	SemanticCacheMaxVectors int     `json:"semantic_cache_max_vectors"` // Max stored vectors (default: 10000)
+	EmbeddingProvider       string  `json:"embedding_provider"`         // "openai" (default: openai)
+	EmbeddingModel          string  `json:"embedding_model"`            // Embedding model name (default: text-embedding-3-small)
+	EmbeddingAPIKey         string  `json:"embedding_api_key"`          // Embedding API key (falls back to OPENAI_API_KEY)
 
 	// Memory Layer (mem0-style agent memory)
 	MemoryEnabled        bool    `json:"memory_enabled"`            // Enable memory extraction and retrieval (default: false)
@@ -92,47 +93,47 @@ type Config struct {
 // Default returns a Config with all defaults pre-filled.
 func Default() Config {
 	return Config{
-		Port:                 "8081",
-		AllowedOrigins:       "*",
-		DBPath:               "proxy.db",
-		DBKeepDays:           30,
-		UpstreamTimeoutSec:   300,
-		LoopThreshold:        3,
-		LoopSimilarity:       0.8,
-		LoopWindowMinutes:    5,
-		HistoryLimit:         200,
-		SessionMaxAge:        24,
-		SessionMaxSize:       10_000,
-		InjectionMode:        "metadata",
-		ContentThreshold:     10.0,
-		RulesEnabled:         true,
-		RetryEnabled:         true,
-		RetryMaxAttempts:     3,
-		RetryInitialDelay:    1000,  // 1 second
-		RetryMaxDelay:        30000, // 30 seconds
-		FallbackEnabled:      false, // Conservative default
-		FallbackStrategy:     "same_tier",
-		AuthEnabled:          false, // Off by default — enable after creating first key
-		CacheEnabled:         true,
-		CacheMaxEntries:      1000,
-		CacheTTLMinutes:      60,
-		CacheOnlyTemp0:       true,
-		PIIEnabled:           false, // Off by default — enable in Security settings
-		PIIMode:              "redact",
-		PIICategories:        "", // Empty = all categories when enabled (populated on first save)
-		SemanticCacheEnabled:   false, // Off by default — requires embedding API key
-		SemanticCacheThreshold: 0.95,
+		Port:                    "8081",
+		AllowedOrigins:          "*",
+		DBPath:                  "proxy.db",
+		DBKeepDays:              30,
+		UpstreamTimeoutSec:      300,
+		LoopThreshold:           3,
+		LoopSimilarity:          0.8,
+		LoopWindowMinutes:       5,
+		HistoryLimit:            200,
+		SessionMaxAge:           24,
+		SessionMaxSize:          10_000,
+		InjectionMode:           "metadata",
+		ContentThreshold:        10.0,
+		RulesEnabled:            true,
+		RetryEnabled:            true,
+		RetryMaxAttempts:        3,
+		RetryInitialDelay:       1000,  // 1 second
+		RetryMaxDelay:           30000, // 30 seconds
+		FallbackEnabled:         false, // Conservative default
+		FallbackStrategy:        "same_tier",
+		AuthEnabled:             false, // Off by default — enable after creating first key
+		CacheEnabled:            true,
+		CacheMaxEntries:         1000,
+		CacheTTLMinutes:         60,
+		CacheOnlyTemp0:          true,
+		PIIEnabled:              false, // Off by default — enable in Security settings
+		PIIMode:                 "redact",
+		PIICategories:           "",    // Empty = all categories when enabled (populated on first save)
+		SemanticCacheEnabled:    false, // Off by default — requires embedding API key
+		SemanticCacheThreshold:  0.95,
 		SemanticCacheMaxVectors: 10000,
-		EmbeddingProvider:      "openai",
-		EmbeddingModel:         "text-embedding-3-small",
-		EmbeddingAPIKey:        "", // Falls back to OPENAI_API_KEY env var
-		MemoryEnabled:          false, // Off by default — requires embedding API key
-		MemoryMaxEntries:       10000,
-		MemoryThreshold:        0.7,    // Lower than semantic cache — memories are loosely related
-		MemoryMaxResults:       5,
-		MemoryRecencyLambda:    0.01,   // 30-day-old memory retains ~74% weight
-		MemoryConflictThresh:   0.85,   // Similarity threshold for conflict detection
-		MemoryTTLDays:          90,     // Memories not accessed in 90 days are eviction candidates
+		EmbeddingProvider:       "openai",
+		EmbeddingModel:          "text-embedding-3-small",
+		EmbeddingAPIKey:         "",    // Falls back to OPENAI_API_KEY env var
+		MemoryEnabled:           false, // Off by default — requires embedding API key
+		MemoryMaxEntries:        10000,
+		MemoryThreshold:         0.7, // Lower than semantic cache — memories are loosely related
+		MemoryMaxResults:        5,
+		MemoryRecencyLambda:     0.01, // 30-day-old memory retains ~74% weight
+		MemoryConflictThresh:    0.85, // Similarity threshold for conflict detection
+		MemoryTTLDays:           90,   // Memories not accessed in 90 days are eviction candidates
 	}
 }
 
@@ -209,6 +210,9 @@ func applyEnv(cfg *Config) {
 	setStr("CONFIG_PORT", &cfg.Port)
 	setStr("CONFIG_ALLOWED_ORIGINS", &cfg.AllowedOrigins)
 	setStr("CONFIG_DB_PATH", &cfg.DBPath)
+	// When CONFIG_DATABASE_URL (a postgres:// DSN) is set, the store uses Postgres
+	// instead of the SQLite file above (selection happens in store.Open).
+	setStr("CONFIG_DATABASE_URL", &cfg.DatabaseURL)
 	setInt("CONFIG_DB_KEEP_DAYS", &cfg.DBKeepDays)
 	setInt("CONFIG_UPSTREAM_TIMEOUT_SEC", &cfg.UpstreamTimeoutSec)
 	setInt("CONFIG_LOOP_THRESHOLD", &cfg.LoopThreshold)
@@ -429,37 +433,37 @@ func (cfg *Config) log() {
 // SettingsResponse is the JSON subset of Config exposed to the settings UI.
 // Only fields that the user should be able to tweak at runtime are included.
 type SettingsResponse struct {
-	RetryEnabled      bool    `json:"retry_enabled"`
-	RetryMaxAttempts  int     `json:"retry_max_attempts"`
-	RetryInitialDelay int     `json:"retry_initial_delay_ms"`
-	RetryMaxDelay     int     `json:"retry_max_delay_ms"`
-	FallbackEnabled   bool    `json:"fallback_enabled"`
-	FallbackStrategy  string  `json:"fallback_strategy"`
-	LoopThreshold     int     `json:"loop_threshold"`
-	LoopSimilarity    float64 `json:"loop_similarity"` // 0–1
-	LoopWindowMinutes int     `json:"loop_window_minutes"`
-	InjectionMode     string  `json:"injection_mode"`         // "metadata" | "content" | "hybrid"
-	ContentThreshold  float64 `json:"content_threshold_usd"`  // Cost to escalate to content injection
-	CacheEnabled      bool    `json:"cache_enabled"`
-	CacheMaxEntries   int     `json:"cache_max_entries"`
-	CacheTTLMinutes   int     `json:"cache_ttl_minutes"`
-	CacheOnlyTemp0    bool    `json:"cache_only_temp0"`
-	PIIEnabled        bool    `json:"pii_enabled"`
-	PIIMode           string  `json:"pii_mode"`
-	PIICategories     string  `json:"pii_categories"`
-	SemanticCacheEnabled   bool    `json:"semantic_cache_enabled"`
-	SemanticCacheThreshold float64 `json:"semantic_cache_threshold"`
-	SemanticCacheMaxVectors int    `json:"semantic_cache_max_vectors"`
-	EmbeddingProvider      string  `json:"embedding_provider"`
-	EmbeddingModel         string  `json:"embedding_model"`
-	EmbeddingAPIKey        string  `json:"embedding_api_key"`
-	MemoryEnabled        bool    `json:"memory_enabled"`
-	MemoryMaxEntries     int     `json:"memory_max_entries"`
-	MemoryThreshold      float64 `json:"memory_threshold"`
-	MemoryMaxResults     int     `json:"memory_max_results"`
-	MemoryRecencyLambda  float64 `json:"memory_recency_lambda"`
-	MemoryConflictThresh float64 `json:"memory_conflict_threshold"`
-	MemoryTTLDays        int     `json:"memory_ttl_days"`
+	RetryEnabled            bool    `json:"retry_enabled"`
+	RetryMaxAttempts        int     `json:"retry_max_attempts"`
+	RetryInitialDelay       int     `json:"retry_initial_delay_ms"`
+	RetryMaxDelay           int     `json:"retry_max_delay_ms"`
+	FallbackEnabled         bool    `json:"fallback_enabled"`
+	FallbackStrategy        string  `json:"fallback_strategy"`
+	LoopThreshold           int     `json:"loop_threshold"`
+	LoopSimilarity          float64 `json:"loop_similarity"` // 0–1
+	LoopWindowMinutes       int     `json:"loop_window_minutes"`
+	InjectionMode           string  `json:"injection_mode"`        // "metadata" | "content" | "hybrid"
+	ContentThreshold        float64 `json:"content_threshold_usd"` // Cost to escalate to content injection
+	CacheEnabled            bool    `json:"cache_enabled"`
+	CacheMaxEntries         int     `json:"cache_max_entries"`
+	CacheTTLMinutes         int     `json:"cache_ttl_minutes"`
+	CacheOnlyTemp0          bool    `json:"cache_only_temp0"`
+	PIIEnabled              bool    `json:"pii_enabled"`
+	PIIMode                 string  `json:"pii_mode"`
+	PIICategories           string  `json:"pii_categories"`
+	SemanticCacheEnabled    bool    `json:"semantic_cache_enabled"`
+	SemanticCacheThreshold  float64 `json:"semantic_cache_threshold"`
+	SemanticCacheMaxVectors int     `json:"semantic_cache_max_vectors"`
+	EmbeddingProvider       string  `json:"embedding_provider"`
+	EmbeddingModel          string  `json:"embedding_model"`
+	EmbeddingAPIKey         string  `json:"embedding_api_key"`
+	MemoryEnabled           bool    `json:"memory_enabled"`
+	MemoryMaxEntries        int     `json:"memory_max_entries"`
+	MemoryThreshold         float64 `json:"memory_threshold"`
+	MemoryMaxResults        int     `json:"memory_max_results"`
+	MemoryRecencyLambda     float64 `json:"memory_recency_lambda"`
+	MemoryConflictThresh    float64 `json:"memory_conflict_threshold"`
+	MemoryTTLDays           int     `json:"memory_ttl_days"`
 }
 
 // SettingsPersister is the interface for persisting settings to a database.
@@ -500,37 +504,37 @@ func (s *SettingsAPI) SetOnChange(fn func(*Config)) {
 func (s *SettingsAPI) HandleGet(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	resp := SettingsResponse{
-		RetryEnabled:      s.cfg.RetryEnabled,
-		RetryMaxAttempts:  s.cfg.RetryMaxAttempts,
-		RetryInitialDelay: s.cfg.RetryInitialDelay,
-		RetryMaxDelay:     s.cfg.RetryMaxDelay,
-		FallbackEnabled:   s.cfg.FallbackEnabled,
-		FallbackStrategy:  s.cfg.FallbackStrategy,
-		LoopThreshold:     s.cfg.LoopThreshold,
-		LoopSimilarity:    s.cfg.LoopSimilarity,
-		LoopWindowMinutes: s.cfg.LoopWindowMinutes,
-		InjectionMode:     s.cfg.InjectionMode,
-		ContentThreshold:  s.cfg.ContentThreshold,
-		CacheEnabled:      s.cfg.CacheEnabled,
-		CacheMaxEntries:   s.cfg.CacheMaxEntries,
-		CacheTTLMinutes:   s.cfg.CacheTTLMinutes,
-		CacheOnlyTemp0:    s.cfg.CacheOnlyTemp0,
-		PIIEnabled:        s.cfg.PIIEnabled,
-		PIIMode:           s.cfg.PIIMode,
-		PIICategories:     s.cfg.PIICategories,
-		SemanticCacheEnabled:   s.cfg.SemanticCacheEnabled,
-		SemanticCacheThreshold: s.cfg.SemanticCacheThreshold,
+		RetryEnabled:            s.cfg.RetryEnabled,
+		RetryMaxAttempts:        s.cfg.RetryMaxAttempts,
+		RetryInitialDelay:       s.cfg.RetryInitialDelay,
+		RetryMaxDelay:           s.cfg.RetryMaxDelay,
+		FallbackEnabled:         s.cfg.FallbackEnabled,
+		FallbackStrategy:        s.cfg.FallbackStrategy,
+		LoopThreshold:           s.cfg.LoopThreshold,
+		LoopSimilarity:          s.cfg.LoopSimilarity,
+		LoopWindowMinutes:       s.cfg.LoopWindowMinutes,
+		InjectionMode:           s.cfg.InjectionMode,
+		ContentThreshold:        s.cfg.ContentThreshold,
+		CacheEnabled:            s.cfg.CacheEnabled,
+		CacheMaxEntries:         s.cfg.CacheMaxEntries,
+		CacheTTLMinutes:         s.cfg.CacheTTLMinutes,
+		CacheOnlyTemp0:          s.cfg.CacheOnlyTemp0,
+		PIIEnabled:              s.cfg.PIIEnabled,
+		PIIMode:                 s.cfg.PIIMode,
+		PIICategories:           s.cfg.PIICategories,
+		SemanticCacheEnabled:    s.cfg.SemanticCacheEnabled,
+		SemanticCacheThreshold:  s.cfg.SemanticCacheThreshold,
 		SemanticCacheMaxVectors: s.cfg.SemanticCacheMaxVectors,
-		EmbeddingProvider:      s.cfg.EmbeddingProvider,
-		EmbeddingModel:         s.cfg.EmbeddingModel,
-		EmbeddingAPIKey:        maskAPIKey(s.cfg.EmbeddingAPIKey),
-		MemoryEnabled:        s.cfg.MemoryEnabled,
-		MemoryMaxEntries:     s.cfg.MemoryMaxEntries,
-		MemoryThreshold:      s.cfg.MemoryThreshold,
-		MemoryMaxResults:     s.cfg.MemoryMaxResults,
-		MemoryRecencyLambda:  s.cfg.MemoryRecencyLambda,
-		MemoryConflictThresh: s.cfg.MemoryConflictThresh,
-		MemoryTTLDays:        s.cfg.MemoryTTLDays,
+		EmbeddingProvider:       s.cfg.EmbeddingProvider,
+		EmbeddingModel:          s.cfg.EmbeddingModel,
+		EmbeddingAPIKey:         maskAPIKey(s.cfg.EmbeddingAPIKey),
+		MemoryEnabled:           s.cfg.MemoryEnabled,
+		MemoryMaxEntries:        s.cfg.MemoryMaxEntries,
+		MemoryThreshold:         s.cfg.MemoryThreshold,
+		MemoryMaxResults:        s.cfg.MemoryMaxResults,
+		MemoryRecencyLambda:     s.cfg.MemoryRecencyLambda,
+		MemoryConflictThresh:    s.cfg.MemoryConflictThresh,
+		MemoryTTLDays:           s.cfg.MemoryTTLDays,
 	}
 	s.mu.RUnlock()
 

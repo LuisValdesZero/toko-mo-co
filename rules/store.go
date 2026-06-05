@@ -1,20 +1,21 @@
 package rules
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"tokomoco/store"
 )
 
 // RuleStore handles SQLite persistence for rules.
-// It shares the proxy's existing *sql.DB connection (WAL mode, already open).
+// It shares the proxy's existing dialect-aware handle (rebinds placeholders).
 type RuleStore struct {
-	db *sql.DB
+	db store.Querier
 }
 
-// NewRuleStore creates a RuleStore using the provided DB connection.
-func NewRuleStore(db *sql.DB) *RuleStore {
+// NewRuleStore creates a RuleStore using the provided DB handle.
+func NewRuleStore(db store.Querier) *RuleStore {
 	return &RuleStore{db: db}
 }
 
@@ -62,7 +63,7 @@ func (rs *RuleStore) Create(r *Rule) (int64, error) {
 	}
 
 	now := time.Now().Unix()
-	res, err := rs.db.Exec(`
+	id, err := rs.db.InsertReturningID(`
 		INSERT INTO rules
 		    (name, enabled, priority, scope_agent_id, conditions_json, action_json, description, evidence, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -71,7 +72,7 @@ func (rs *RuleStore) Create(r *Rule) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("rules create: %w", err)
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 // Update replaces all mutable fields of an existing rule.
