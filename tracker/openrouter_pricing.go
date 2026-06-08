@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -78,6 +79,7 @@ func RefreshFromOpenRouter(db *store.DB, ps *PricingStore) (int, error) {
 	}
 
 	updated := 0
+	seen := make(map[string]bool, len(parsed.Data)) // prefixes present in this catalogue
 	for _, m := range parsed.Data {
 		if m.ID == "" {
 			continue
@@ -88,6 +90,7 @@ func RefreshFromOpenRouter(db *store.DB, ps *PricingStore) (int, error) {
 			continue // free or unpriced model — nothing to record
 		}
 		prefix := "openrouter/" + m.ID
+		seen[prefix] = true
 		row := store.ModelPricingRow{
 			ModelPrefix: prefix,
 			InputPer1M:  inPer1M,
@@ -108,7 +111,25 @@ func RefreshFromOpenRouter(db *store.DB, ps *PricingStore) (int, error) {
 		}
 	}
 
+	// Prune: make the catalogue authoritative so the Pricing page lists ONLY models
+	// available via the OpenRouter API. Delete every pre-existing row that isn't in
+	// this fetch (the hardcoded seeds + any model OpenRouter dropped). Guarded by
+	// updated>0 so a transient empty/garbled response can never wipe the table.
+	pruned := 0
+	if updated > 0 {
+		for _, e := range existing {
+			if !seen[e.ModelPrefix] {
+				if err := db.DeleteModelPricing(e.ID); err == nil {
+					pruned++
+				}
+			}
+		}
+	}
+
 	ps.ReloadCache()
+	if pruned > 0 {
+		log.Printf("[PRICING] OpenRouter refresh pruned %d non-catalogue model(s)", pruned)
+	}
 	return updated, nil
 }
 
