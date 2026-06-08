@@ -333,12 +333,30 @@
                             </svg>
                             Templates
                         </button>
+                        <button class="btn btn-ghost" id="showGuardrailsRailsBtn" title="View the Colang rails currently compiled in the NeMo Guardrails service">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:6px">
+                                <path d="M8 1l6 2.5v4C14 11 11.5 14 8 15 4.5 14 2 11 2 7.5v-4z"/>
+                            </svg>
+                            Compiled rails
+                        </button>
                         <button class="btn btn-primary" id="createRuleBtn">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px">
                                 <line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>
                             </svg>
                             Create Rule
                         </button>
+                    </div>
+                </div>
+
+                <!-- Compiled rails view (hidden by default) — read-only mirror of what the
+                     NeMo Guardrails service currently holds (the dual store's compiled side). -->
+                <div class="section-card" id="guardrailsRailsPanel" style="display:none;">
+                    <div class="section-header">
+                        <span class="section-title">NeMo Guardrails — compiled rails</span>
+                        <button class="btn btn-ghost btn-sm" id="closeGuardrailsRailsBtn">Dismiss</button>
+                    </div>
+                    <div id="guardrailsRailsList" style="padding:4px 0;">
+                        <div style="padding:24px;text-align:center;color:var(--text-muted);">Loading…</div>
                     </div>
                 </div>
 

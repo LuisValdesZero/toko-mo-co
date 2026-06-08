@@ -79,6 +79,19 @@ A production-grade rules engine has been successfully implemented for Toko-Mo-Co
 
 The `guardrails` condition is fed by the NeMo Guardrails service (`POST /guard/input` triage). When `CONFIG_NEMOGUARDRAILS_URL` is set the proxy also runs `POST /guard/output` on non-streaming replies to mask PII / block flagged output. See the **NeMo Guardrails** rule template and `config.go` (`CONFIG_NEMOGUARDRAILS_*`).
 
+### Authoring Colang rails (dual store)
+
+A `guardrails` condition can also **author** a rail inside the NeMo Guardrails service, not just consume its verdict. Set `rail_type` on the condition (the Rule editor exposes this):
+
+| `rail_type` | Effect | Fields |
+|---|---|---|
+| `none` (default) | Consume the verdict only (legacy behavior) | `value` (violation_type) |
+| `block_terms` | Block prompts/replies containing any listed term | `rail_kind` (input\|output), `rail_params.terms` |
+| `block_regex` | Block on a regex match | `rail_kind`, `rail_params.pattern` |
+| `custom` | A raw Colang flow body, verbatim | `rail_kind`, `colang` |
+
+On save (create/update/toggle/delete) the proxy mirrors the rule into the guardrails service via its `PUT/DELETE {CONFIG_NEMOGUARDRAILS_CONFIG_PATH}/…` control plane (default `/config/rules`), authenticated with `CONFIG_NEMOGUARDRAILS_API_KEY` sent as `X-Internal-Key`. The service compiles the rail to Colang, validates it (a bad rail is rejected with HTTP 422 and never breaks the running guard), and hot-reloads. The rule is keyed in the service as `tmc-<rule id>` (stable across renames). The response includes `guardrails_push: ok|error: …`. `GET /api/rules/guardrails-rails` returns the service's compiled rails (the dashboard's **Compiled rails** view). Push is a no-op when guardrails is disabled.
+
 ## Action Types
 
 | Type | Description | Parameters |

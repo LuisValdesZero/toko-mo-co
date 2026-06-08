@@ -67,6 +67,16 @@ type ConditionSpec struct {
 	// WindowSec is only used for request_count (sliding window width).
 	// cost_daily and cost_monthly use calendar-day / calendar-month resets.
 	WindowSec int `json:"window_sec,omitempty"`
+
+	// Guardrails rail authoring (CondGuardrails only). When RailType is set (and not
+	// "none"), saving the rule ALSO authors a Colang rail in the NeMo Guardrails
+	// service via its /config/rules API (dual store). These are inert for evaluation
+	// (the guardrails condition matches the service verdict via Value); they only
+	// drive the push. Backward-compatible: existing CondGuardrails rules leave them empty.
+	RailKind   string         `json:"rail_kind,omitempty"`   // "input" | "output" (default input)
+	RailType   string         `json:"rail_type,omitempty"`   // "block_terms" | "block_regex" | "custom"
+	RailParams map[string]any `json:"rail_params,omitempty"` // block_terms:{terms:[...]} block_regex:{pattern:"..."}
+	Colang     string         `json:"colang,omitempty"`      // raw Colang flow body (rail_type=custom)
 }
 
 // ActionSpec is the JSON-serializable definition of what the rule does.
@@ -286,6 +296,28 @@ func BuiltinTemplates() []RuleTemplate {
 			},
 			Priority: 87,
 			Editable: []string{"block_message", "scope_agent_id"},
+		},
+		{
+			ID:          "nemo-guardrails-block-terms",
+			Name:        "NeMo Guardrails — Block Terms",
+			Category:    "safety",
+			Description: "Author an input rail in the NeMo Guardrails service that blocks prompts containing any of the listed terms. Edit the term list, then save — the rule is also pushed to the guardrails service and compiled to Colang. Requires CONFIG_NEMOGUARDRAILS_URL.",
+			Icon:        "shield",
+			Conditions: []ConditionSpec{
+				{
+					Type:       CondGuardrails,
+					RailKind:   "input",
+					RailType:   "block_terms",
+					RailParams: map[string]any{"terms": []any{"forbidden-term"}},
+				},
+			},
+			Action: ActionSpec{
+				Type:         ActionBlock,
+				BlockStatus:  403,
+				BlockMessage: "Request blocked by NeMo Guardrails.",
+			},
+			Priority: 87,
+			Editable: []string{"rail_params", "block_message", "scope_agent_id"},
 		},
 		{
 			ID:          "provider-redirect",

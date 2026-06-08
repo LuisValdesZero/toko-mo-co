@@ -23,9 +23,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -60,11 +62,31 @@ type Stats struct {
 	Errors        int64  `json:"errors"`
 }
 
+// RuleSpec is one operator-authored Colang rail — the control-plane contract with
+// the guardrails service's /config/rules CRUD API (server.py RuleModel). The proxy
+// authors these from the Rule editor and pushes them here; the service compiles them
+// to Colang and hot-reloads. block_terms uses params{"terms":[...]}, block_regex uses
+// params{"pattern":"..."}, custom uses a raw Colang flow body.
+type RuleSpec struct {
+	Name     string         `json:"name"`
+	Kind     string         `json:"kind"`      // "input" | "output"
+	RailType string         `json:"rail_type"` // "custom" | "block_terms" | "block_regex"
+	Params   map[string]any `json:"params,omitempty"`
+	Colang   string         `json:"colang,omitempty"`
+	Enabled  bool           `json:"enabled"`
+	Priority int            `json:"priority,omitempty"`
+}
+
+// ErrNotFound is returned by GetRule/DeleteRule when the named rail does not exist
+// (HTTP 404). DeleteRule swallows it so deletes are idempotent.
+var ErrNotFound = errors.New("nemoguardrails: rule not found")
+
 // Client calls the NeMo Guardrails service.
 type Client struct {
 	baseURL    string
 	inputPath  string
 	outputPath string
+	configPath string // control-plane CRUD collection path (default /config/rules)
 	apiKey     string
 	mode       string // "block" | "flag"
 	caller     string
@@ -99,6 +121,7 @@ func New(baseURL, inputPath, outputPath, apiKey, mode, caller string, timeout ti
 		baseURL:    baseURL,
 		inputPath:  inputPath,
 		outputPath: outputPath,
+		configPath: "/config/rules",
 		apiKey:     apiKey,
 		mode:       mode,
 		caller:     caller,
@@ -108,6 +131,14 @@ func New(baseURL, inputPath, outputPath, apiKey, mode, caller string, timeout ti
 
 // Mode returns "block" or "flag".
 func (c *Client) Mode() string { return c.mode }
+
+// SetConfigPath overrides the control-plane CRUD collection path (default
+// /config/rules). Empty is ignored.
+func (c *Client) SetConfigPath(p string) {
+	if p != "" {
+		c.configPath = p
+	}
+}
 
 func (c *Client) post(ctx context.Context, path string, payload any) ([]byte, error) {
 	body, err := json.Marshal(payload)
@@ -189,6 +220,105 @@ func (c *Client) Stats() Stats {
 		OutputFlagged: c.outputFlagged.Load(),
 		Errors:        c.errors.Load(),
 	}
+}
+
+// ── Control plane (CRUD on authored rails) ───────────────────────────────────
+// These hit the guardrails service's /config/rules API, gated by the
+// X-Internal-Key header (GUARDRAILS_INTERNAL_KEY) — distinct from the /guard
+// endpoints, which are unauthenticated. The shared key is carried in apiKey.
+
+func (c *Client) rulePath(name string) string {
+	return strings.TrimRight(c.configPath, "/") + "/" + url.PathEscape(name)
+}
+
+// configReq performs one control-plane request. payload/out may be nil. A 404 is
+// surfaced as ErrNotFound so callers can treat get/delete idempotently.
+func (c *Client) configReq(ctx context.Context, method, path string, payload, out any) error {
+	var body io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.baseURL, "/")+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.apiKey != "" {
+		req.Header.Set("X-Internal-Key", c.apiKey)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.errors.Add(1)
+		return fmt.Errorf("nemoguardrails config %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrNotFound
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.errors.Add(1)
+		return fmt.Errorf("nemoguardrails config %s %s returned %d: %s", method, path, resp.StatusCode, truncate(string(respBody), 300))
+	}
+	if out != nil && len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("nemoguardrails config decode: %w", err)
+		}
+	}
+	return nil
+}
+
+// PutRule upserts a rail (PUT /config/rules/{name}). The service validates the
+// generated Colang, persists it, and hot-reloads LLMRails; it returns the stored rule.
+func (c *Client) PutRule(ctx context.Context, rule RuleSpec) (RuleSpec, error) {
+	if rule.Name == "" {
+		return RuleSpec{}, fmt.Errorf("nemoguardrails: rule name required")
+	}
+	var out RuleSpec
+	if err := c.configReq(ctx, http.MethodPut, c.rulePath(rule.Name), rule, &out); err != nil {
+		return RuleSpec{}, err
+	}
+	return out, nil
+}
+
+// ListRules returns every authored rail (the service's compiled rule set).
+func (c *Client) ListRules(ctx context.Context) ([]RuleSpec, error) {
+	var out struct {
+		Rules []RuleSpec `json:"rules"`
+	}
+	if err := c.configReq(ctx, http.MethodGet, c.configPath, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Rules, nil
+}
+
+// GetRule returns one rail by name, or (nil, nil) when it does not exist.
+func (c *Client) GetRule(ctx context.Context, name string) (*RuleSpec, error) {
+	var out RuleSpec
+	err := c.configReq(ctx, http.MethodGet, c.rulePath(name), nil, &out)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteRule removes a rail. A missing rail is treated as success (idempotent).
+func (c *Client) DeleteRule(ctx context.Context, name string) error {
+	err := c.configReq(ctx, http.MethodDelete, c.rulePath(name), nil, nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 // toMsgPayload reduces arbitrary message maps to {role, content} the service expects.

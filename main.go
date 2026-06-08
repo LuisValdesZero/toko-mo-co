@@ -351,6 +351,15 @@ func main() {
 		log.Printf("[NEMOGUARDRAILS] disabled (set CONFIG_NEMOGUARDRAILS_URL to enable)")
 	}
 
+	// Dual store: let the Rules API mirror CondGuardrails rail-authoring rules into
+	// the guardrails service's /config/rules control plane (push on save, idempotent
+	// delete, compiled-rails read-back). No-op when guardrails is disabled.
+	if rulesAPI != nil && nemoGuardrailsClient != nil {
+		nemoGuardrailsClient.SetConfigPath(cfg.NeMoGuardrailsConfigPath)
+		rulesAPI.SetGuardrails(nemoGuardrailsClient)
+		log.Printf("[RULES] guardrails control-plane push enabled (path=%s)", cfg.NeMoGuardrailsConfigPath)
+	}
+
 	proxyHandler := proxy.NewHandler(sessionTracker, loopDetector, wsHub, db, &cfg, rulesEngine, fallbackStore, responseCache, semanticCache, memoryStore, providerStore, nemoGuard, nemoGuardrailsClient)
 
 	// authWrap wraps a handler with API key auth middleware.

@@ -109,8 +109,12 @@ type Config struct {
 	NeMoGuardrailsOutputPath string `json:"nemo_guardrails_output_path"` // output endpoint (default: /guard/output)
 	NeMoGuardrailsMode       string `json:"nemo_guardrails_mode"`        // "block" (default) | "flag"
 	NeMoGuardrailsCaller     string `json:"nemo_guardrails_caller"`      // sent as the "caller" field (default: toko-mo-co)
-	NeMoGuardrailsAPIKey     string `json:"nemo_guardrails_api_key"`     // optional Bearer token
+	NeMoGuardrailsAPIKey     string `json:"nemo_guardrails_api_key"`     // optional Bearer token (also the X-Internal-Key for the control plane)
 	NeMoGuardrailsTimeoutSec int    `json:"nemo_guardrails_timeout_sec"` // per-request timeout (default: 12)
+	// Control plane: the proxy authors Colang rails in the guardrails service and
+	// pushes them to this CRUD path. The same NeMoGuardrailsAPIKey is sent as
+	// X-Internal-Key (= the service's GUARDRAILS_INTERNAL_KEY).
+	NeMoGuardrailsConfigPath string `json:"nemo_guardrails_config_path"` // default /config/rules
 }
 
 // Default returns a Config with all defaults pre-filled.
@@ -170,6 +174,7 @@ func Default() Config {
 		NeMoGuardrailsMode:       "block",
 		NeMoGuardrailsCaller:     "toko-mo-co",
 		NeMoGuardrailsTimeoutSec: 12,
+		NeMoGuardrailsConfigPath: "/config/rules",
 	}
 }
 
@@ -321,6 +326,7 @@ func applyEnv(cfg *Config) {
 	setStr("CONFIG_NEMOGUARDRAILS_CALLER", &cfg.NeMoGuardrailsCaller)
 	setStr("CONFIG_NEMOGUARDRAILS_API_KEY", &cfg.NeMoGuardrailsAPIKey)
 	setInt("CONFIG_NEMOGUARDRAILS_TIMEOUT_SEC", &cfg.NeMoGuardrailsTimeoutSec)
+	setStr("CONFIG_NEMOGUARDRAILS_CONFIG_PATH", &cfg.NeMoGuardrailsConfigPath)
 }
 
 // validate returns an error if any config value is out of range.
