@@ -257,18 +257,28 @@ func main() {
 		if memEmbErr != nil {
 			log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory unavailable", memEmbErr)
 		} else {
-			var memErr error
-			memoryStore, memErr = memory.NewStore(db.DB(), memEmb, cfg.MemoryMaxEntries, cfg.MemoryThreshold, cfg.MemoryEnabled,
+			memOpts := []memory.StoreOption{
 				memory.WithRecencyLambda(cfg.MemoryRecencyLambda),
 				memory.WithConflictThreshold(cfg.MemoryConflictThresh),
 				memory.WithTTLDays(cfg.MemoryTTLDays),
-			)
+				// bge-m3 hybrid: blend the lexical (sparse) score using the same weight
+				// as the semantic cache (both ride the same embedder).
+				memory.WithSparseWeight(cfg.SemanticCacheSparseWeight),
+			}
+			// When the embedder also reranks (bge-reranker-v2-m3 via the Aratiri provider),
+			// attach it so recall reorders candidates by a cross-encoder (best-effort).
+			if rr, ok := memEmb.(embedding.Reranker); ok {
+				memOpts = append(memOpts, memory.WithReranker(rr))
+				log.Printf("[MEMORY] reranker attached (cross-encoder recall reordering)")
+			}
+			var memErr error
+			memoryStore, memErr = memory.NewStore(db.DB(), memEmb, cfg.MemoryMaxEntries, cfg.MemoryThreshold, cfg.MemoryEnabled, memOpts...)
 			if memErr != nil {
 				log.Printf("[MEMORY] ⚠ store init failed: %v — memory unavailable", memErr)
 				memoryStore = nil
 			} else {
-				log.Printf("[MEMORY] store ready enabled=%v threshold=%.2f maxEntries=%d maxResults=%d memories=%d",
-					cfg.MemoryEnabled, cfg.MemoryThreshold, cfg.MemoryMaxEntries, cfg.MemoryMaxResults, memoryStore.Count())
+				log.Printf("[MEMORY] store ready enabled=%v threshold=%.2f sparseWeight=%.2f maxEntries=%d maxResults=%d memories=%d",
+					cfg.MemoryEnabled, cfg.MemoryThreshold, cfg.SemanticCacheSparseWeight, cfg.MemoryMaxEntries, cfg.MemoryMaxResults, memoryStore.Count())
 			}
 		}
 	} else {
@@ -448,6 +458,7 @@ func main() {
 				memoryStore.SetRecencyLambda(c.MemoryRecencyLambda)
 				memoryStore.SetConflictThreshold(c.MemoryConflictThresh)
 				memoryStore.SetTTLDays(c.MemoryTTLDays)
+				memoryStore.SetSparseWeight(c.SemanticCacheSparseWeight)
 			}
 
 			// Sync exact cache parameters

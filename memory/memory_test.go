@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,6 +13,75 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+// fakeReranker returns a fixed ordering of input indices, or an error.
+type fakeReranker struct {
+	order []int // indices into the input slice, best-first
+	err   error
+}
+
+func (f fakeReranker) Rerank(_ string, items []embedding.RerankItem, _ int) ([]embedding.RerankResult, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]embedding.RerankResult, 0, len(f.order))
+	for rank, idx := range f.order {
+		out = append(out, embedding.RerankResult{ID: strconv.Itoa(idx), Index: idx, Score: float64(len(f.order) - rank)})
+	}
+	return out, nil
+}
+
+func factsOf(ms []scoredMatch) []string {
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = m.entry.Fact
+	}
+	return out
+}
+
+func TestRerankMatchesReorders(t *testing.T) {
+	ms := []scoredMatch{{entry: &Entry{Fact: "a"}}, {entry: &Entry{Fact: "b"}}, {entry: &Entry{Fact: "c"}}}
+
+	// Reranker promotes c, then a, then b.
+	s := &Store{reranker: fakeReranker{order: []int{2, 0, 1}}}
+	out := s.rerankMatches("q", ms, 3)
+	if got := factsOf(out); got[0] != "c" || got[1] != "a" || got[2] != "b" {
+		t.Fatalf("rerank order wrong: %v", got)
+	}
+
+	// Warming reranker -> fall back to the input (hybrid) order.
+	sw := &Store{reranker: fakeReranker{err: embedding.ErrRerankerWarming}}
+	if got := factsOf(sw.rerankMatches("q", ms, 3)); got[0] != "a" {
+		t.Fatalf("expected fallback order on warming, got %v", got)
+	}
+
+	// No reranker -> passthrough unchanged.
+	if got := factsOf((&Store{}).rerankMatches("q", ms, 3)); len(got) != 3 || got[0] != "a" {
+		t.Fatalf("nil reranker should passthrough, got %v", got)
+	}
+}
+
+func TestSparseCosineAndRoundTrip(t *testing.T) {
+	a := embedding.SparseVector{1: 1.0, 2: 1.0}
+	if c := sparseCosine(a, a); c < 0.999 {
+		t.Fatalf("self cosine ~1, got %f", c)
+	}
+	if c := sparseCosine(a, embedding.SparseVector{3: 1.0}); c != 0 {
+		t.Fatalf("disjoint cosine = 0, got %f", c)
+	}
+	if sparseCosine(nil, a) != 0 {
+		t.Fatal("empty cosine = 0")
+	}
+
+	sp := embedding.SparseVector{5: 0.5, 9: 0.25}
+	back := jsonToSparse(sparseToJSON(sp).(string))
+	if back[5] != 0.5 || back[9] != 0.25 {
+		t.Fatalf("sparse JSON roundtrip mismatch: %v", back)
+	}
+	if sparseToJSON(nil) != nil {
+		t.Fatal("nil sparse should serialize to nil (NULL column)")
+	}
+}
 
 // testDB creates a temporary SQLite database for testing.
 func testDB(t *testing.T) *sql.DB {
@@ -912,7 +982,7 @@ func TestUpdateExistingEntry(t *testing.T) {
 
 	// Update it
 	newVec, _ := emb.Embed("User now prefers Go")
-	err := store.updateExistingEntry(entry, "User now prefers Go", newVec)
+	err := store.updateExistingEntry(entry, "User now prefers Go", newVec, nil)
 	if err != nil {
 		t.Fatalf("updateExistingEntry: %v", err)
 	}
