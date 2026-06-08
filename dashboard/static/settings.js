@@ -1535,6 +1535,7 @@ function renderProviderRow(provider) {
                 <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">
                     Usage: <code style="background:var(--bg-secondary);padding:1px 5px;border-radius:3px;">${escapeHtml(provider.name)}/model-name</code>
                 </span>
+                ${provider.default_model ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">Default: <code style="background:var(--bg-secondary);padding:1px 5px;border-radius:3px;">${escapeHtml(provider.default_model)}</code></span>` : ''}
                 ${modelsStr ? `<span style="margin-left:8px;">${modelsStr}${moreStr}</span>` : ''}
                 <span id="providerTestResult_${provider.id}" style="font-size:11px;margin-left:8px;"></span>
             </div>
@@ -1555,6 +1556,7 @@ function openProviderEditor(id) {
     document.getElementById('providerAuthKey').value = '';
     document.getElementById('providerAuthEnvVar').value = '';
     document.getElementById('providerModels').value = '';
+    document.getElementById('providerDefaultModel').value = '';
     document.getElementById('testProviderResult').textContent = '';
 
     if (id) {
@@ -1570,6 +1572,7 @@ function openProviderEditor(id) {
             document.getElementById('providerAuthKey').value = p.auth_header ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
             document.getElementById('providerAuthEnvVar').value = p.auth_env_var || '';
             document.getElementById('providerModels').value = (p.models || []).join('\n');
+            document.getElementById('providerDefaultModel').value = p.default_model || '';
         }
     } else {
         title.textContent = 'Add Custom Provider';
@@ -1596,6 +1599,7 @@ async function saveProvider() {
     const authEnvVar = document.getElementById('providerAuthEnvVar').value.trim();
     const modelsText = document.getElementById('providerModels').value.trim();
     const models = modelsText ? modelsText.split('\n').map(m => m.trim()).filter(m => m) : [];
+    const defaultModel = document.getElementById('providerDefaultModel').value.trim();
 
     // Client-side validation
     if (!name) { alert('Provider name is required'); return; }
@@ -1620,6 +1624,7 @@ async function saveProvider() {
         auth_header: authHeader,
         auth_env_var: authEnvVar,
         models,
+        default_model: defaultModel,
         enabled: true,
     };
 

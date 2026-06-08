@@ -69,8 +69,12 @@ func compileAction(spec ActionSpec, limiter *RateLimiter) (Action, error) {
 		return &injectPromptAction{prompt: spec.InjectedSystemPrompt}, nil
 
 	case ActionRedirect:
+		// Provider failover chain takes precedence over a single redirect URL.
+		if len(spec.RedirectProviders) > 0 {
+			return &redirectAction{providers: spec.RedirectProviders}, nil
+		}
 		if spec.RedirectURL == "" {
-			return nil, fmt.Errorf("redirect action requires redirect_url to be set")
+			return nil, fmt.Errorf("redirect action requires redirect_url or redirect_providers to be set")
 		}
 		if err := validateUpstreamURL(spec.RedirectURL); err != nil {
 			return nil, fmt.Errorf("redirect_url: %w", err)
@@ -205,14 +209,16 @@ func (a *injectPromptAction) ActType() ActionType { return ActionInjectPrompt }
 // ── redirectAction ────────────────────────────────────────────────────────────
 
 type redirectAction struct {
-	url string
+	url       string
+	providers []string // ordered failover chain of custom-provider names
 }
 
 func (a *redirectAction) Apply(_ *RuleContext, rule *Rule) RuleResult {
 	return RuleResult{
-		Action:      ActionRedirect,
-		RedirectURL: a.url,
-		MatchedRule: rule,
+		Action:            ActionRedirect,
+		RedirectURL:       a.url,
+		RedirectProviders: a.providers,
+		MatchedRule:       rule,
 	}
 }
 func (a *redirectAction) ActType() ActionType { return ActionRedirect }

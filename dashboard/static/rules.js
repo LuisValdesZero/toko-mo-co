@@ -47,6 +47,79 @@ const REDIRECT_PROVIDERS = [
     { id: 'https://generativelanguage.googleapis.com/v1beta/models/',  label: 'Google Gemini', desc: 'generativelanguage.googleapis.com' },
 ];
 
+// ── Provider Failover (redirect action) ──────────────────────────────────────
+// The redirect action is an ORDERED chain of configured custom providers; the
+// first is primary, the rest are fallbacks (each uses its default_model). The
+// list is editable with drag-and-drop + arrow buttons.
+let _providerCatalog = [];   // [{name, display_name, default_model, enabled}, ...] from /api/providers
+let redirectChain = [];      // ordered provider names for the current redirect rule being edited
+
+async function loadProviderCatalog() {
+    try {
+        const res = await fetch('/api/providers');
+        if (res.ok) _providerCatalog = (await res.json()) || [];
+    } catch (e) { console.error('Error loading providers:', e); }
+}
+function providerByName(n) { return _providerCatalog.find(p => p.name === n); }
+
+function populateRedirectAddOptions() {
+    const sel = document.getElementById('redirectAddProvider');
+    if (!sel) return;
+    const avail = _providerCatalog.filter(p => p.enabled);
+    sel.innerHTML = avail.length
+        ? avail.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.display_name || p.name)}${p.default_model ? ' — ' + escapeHtml(p.default_model) : ''}</option>`).join('')
+        : '<option value="">(no providers configured — add one in Settings → Providers)</option>';
+}
+
+function renderRedirectChain() {
+    const list = document.getElementById('redirectChainList');
+    if (!list) return;
+    if (redirectChain.length === 0) {
+        list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">No providers yet — add one below. The first becomes the primary.</div>';
+        return;
+    }
+    list.innerHTML = redirectChain.map((name, i) => {
+        const p = providerByName(name);
+        const model = p?.default_model || '(no default model)';
+        const primary = i === 0 ? '<span class="badge badge-primary">PRIMARY</span>' : `<span class="badge badge-muted">fallback ${i}</span>`;
+        return `<div class="redirect-chain-row" draggable="true" data-idx="${i}">
+            <span class="redirect-chain-handle" title="Drag to reorder">⠿</span>
+            <span class="redirect-chain-name">${escapeHtml(p?.display_name || name)}</span>
+            <code class="redirect-chain-model">${escapeHtml(model)}</code>
+            ${primary}
+            <span style="flex:1;"></span>
+            <button type="button" class="btn-icon" data-act="up" data-idx="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
+            <button type="button" class="btn-icon" data-act="down" data-idx="${i}" ${i === redirectChain.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+            <button type="button" class="btn-icon btn-icon-danger" data-act="rm" data-idx="${i}" title="Remove">✕</button>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', () => {
+        const i = parseInt(b.dataset.idx, 10), act = b.dataset.act;
+        if (act === 'up' && i > 0) { [redirectChain[i - 1], redirectChain[i]] = [redirectChain[i], redirectChain[i - 1]]; }
+        else if (act === 'down' && i < redirectChain.length - 1) { [redirectChain[i + 1], redirectChain[i]] = [redirectChain[i], redirectChain[i + 1]]; }
+        else if (act === 'rm') { redirectChain.splice(i, 1); }
+        renderRedirectChain();
+    }));
+
+    let dragIdx = null;
+    list.querySelectorAll('.redirect-chain-row').forEach(row => {
+        row.addEventListener('dragstart', () => { dragIdx = parseInt(row.dataset.idx, 10); row.style.opacity = '0.5'; });
+        row.addEventListener('dragend', () => { row.style.opacity = '1'; });
+        row.addEventListener('dragover', e => e.preventDefault());
+        row.addEventListener('drop', e => {
+            e.preventDefault();
+            const dropIdx = parseInt(row.dataset.idx, 10);
+            if (dragIdx !== null && dragIdx !== dropIdx) {
+                const [m] = redirectChain.splice(dragIdx, 1);
+                redirectChain.splice(dropIdx, 0, m);
+                renderRedirectChain();
+            }
+            dragIdx = null;
+        });
+    });
+}
+
 // Build model <option> HTML with optgroups (cached once)
 function buildModelOptionsHTML(selectedValue) {
     let html = '<option value="">-- Select model --</option>';
@@ -770,25 +843,33 @@ function updateActionParams(existingAction = null) {
         `;
 
     } else if (actionType === 'redirect') {
-        const currentURL = existingAction?.redirect_url || '';
+        // Provider Failover: an ordered chain of configured providers (primary + fallbacks),
+        // each using its default model. Reorderable via drag-and-drop + arrows.
+        redirectChain = Array.isArray(existingAction?.redirect_providers)
+            ? existingAction.redirect_providers.slice() : [];
         container.innerHTML = `
             <div class="field">
-                <label class="field-label">Redirect Provider</label>
-                <select id="actionRedirectURL" style="width:100%;">
-                    ${buildRedirectOptionsHTML(currentURL)}
-                </select>
+                <label class="field-label">Provider Failover Chain</label>
+                <p style="font-size:11px;color:var(--text-muted);margin:0 0 8px;">First provider is primary; the rest are fallbacks (each uses its default model). Drag or use the arrows to reorder.</p>
+                <div id="redirectChainList" class="redirect-chain"></div>
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <select id="redirectAddProvider" style="flex:1;"></select>
+                    <button type="button" class="btn btn-ghost btn-sm" id="redirectAddBtn">+ Add</button>
+                </div>
             </div>
         `;
-        // Convert native select to custom dropdown
-        setTimeout(() => {
-            const redirectSelect = document.getElementById('actionRedirectURL');
-            if (redirectSelect) {
-                new CustomDropdown(redirectSelect, { searchable: false });
-                redirectSelect.addEventListener('change', function() {
-                    handleSelectToInput(this, 'https://alternative-provider.com/v1/...');
-                });
-            }
-        }, 0);
+        const init = () => {
+            renderRedirectChain();
+            populateRedirectAddOptions();
+            document.getElementById('redirectAddBtn')?.addEventListener('click', () => {
+                const sel = document.getElementById('redirectAddProvider');
+                if (sel && sel.value && !redirectChain.includes(sel.value)) {
+                    redirectChain.push(sel.value);
+                    renderRedirectChain();
+                }
+            });
+        };
+        if (_providerCatalog.length === 0) { loadProviderCatalog().then(init); } else { init(); }
     }
 }
 
@@ -900,7 +981,7 @@ function collectAction() {
         action.injected_system_prompt = document.getElementById('actionInjectPrompt')?.value || '';
 
     } else if (type === 'redirect') {
-        action.redirect_url = document.getElementById('actionRedirectURL')?.value || '';
+        action.redirect_providers = redirectChain.slice();
     }
 
     return action;

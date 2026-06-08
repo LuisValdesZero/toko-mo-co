@@ -172,6 +172,14 @@ func main() {
 	} else if seededOR {
 		log.Printf("[PROVIDERS] seeded OpenRouter provider (set OPENROUTER_API_KEY, then use model openrouter/<id>)")
 	}
+	// Seed OpenRouter-backed family providers (or-openai, or-anthropic, or-google,
+	// llama, qwen, deepseek) each with a cheap default model — these populate the
+	// redirect-failover chain in Provider-Failover rules.
+	if n, err := providerStore.SeedProviderFamilies(); err != nil {
+		log.Printf("[PROVIDERS] failed to seed provider families: %v", err)
+	} else if n > 0 {
+		log.Printf("[PROVIDERS] seeded %d OpenRouter family providers", n)
+	}
 	providerAPI := providers.NewAPI(providerStore)
 	providerNames := providerStore.AllNames()
 	if len(providerNames) > 0 {

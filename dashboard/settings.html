@@ -791,10 +791,15 @@
             <input type="text" id="providerAuthEnvVar" class="form-input" placeholder="e.g. DEEPSEEK_API_KEY" style="width:100%;">
             <p class="setting-help">Environment variable name. Takes precedence over stored key above.</p>
         </div>
-        <div class="form-group" style="margin-bottom:0;">
+        <div class="form-group">
             <label class="form-label">Model Names (optional, one per line)</label>
             <textarea id="providerModels" class="form-input" rows="3" placeholder="llama3.2&#10;codestral&#10;mistral-7b" style="width:100%;font-family:var(--font-mono);resize:vertical;"></textarea>
             <p class="setting-help">Known models for dropdown menus. You can always use any model name in API calls.</p>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Default Model (optional)</label>
+            <input type="text" id="providerDefaultModel" class="form-input" placeholder="e.g. openai/gpt-4o-mini" style="width:100%;font-family:var(--font-mono);">
+            <p class="setting-help">Used when this provider is a target in a Provider-Failover rule's redirect chain.</p>
         </div>
     </div>
     <div class="modal-panel-footer" style="display:flex;align-items:center;gap:12px;">

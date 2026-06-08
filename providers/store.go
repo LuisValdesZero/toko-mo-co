@@ -45,6 +45,7 @@ type CustomProvider struct {
 	AuthHeader  string   `json:"auth_header"`  // raw auth header value (optional)
 	AuthEnvVar  string   `json:"auth_env_var"` // env var name for API key (optional)
 	Models      []string `json:"models"`       // known model names
+	DefaultModel string  `json:"default_model"` // model used when this provider is a redirect-failover target
 	Enabled     bool     `json:"enabled"`
 	CreatedAt   int64    `json:"created_at"`
 	UpdatedAt   int64    `json:"updated_at"`
@@ -122,7 +123,7 @@ func (ps *ProviderStore) AllNames() []string {
 func (ps *ProviderStore) All() ([]*CustomProvider, error) {
 	rows, err := ps.db.Query(`
 		SELECT id, name, display_name, base_url, api_format, api_path,
-		       auth_header, auth_env_var, models_json, enabled, created_at, updated_at
+		       auth_header, auth_env_var, models_json, default_model, enabled, created_at, updated_at
 		FROM custom_providers
 		ORDER BY name ASC
 	`)
@@ -147,7 +148,7 @@ func (ps *ProviderStore) All() ([]*CustomProvider, error) {
 func (ps *ProviderStore) Get(id int64) (*CustomProvider, error) {
 	row := ps.db.QueryRow(`
 		SELECT id, name, display_name, base_url, api_format, api_path,
-		       auth_header, auth_env_var, models_json, enabled, created_at, updated_at
+		       auth_header, auth_env_var, models_json, default_model, enabled, created_at, updated_at
 		FROM custom_providers WHERE id = ?
 	`, id)
 
@@ -155,7 +156,7 @@ func (ps *ProviderStore) Get(id int64) (*CustomProvider, error) {
 	var modelsJSON string
 	var enabled int
 	err := row.Scan(&cp.ID, &cp.Name, &cp.DisplayName, &cp.BaseURL, &cp.APIFormat,
-		&cp.APIPath, &cp.AuthHeader, &cp.AuthEnvVar, &modelsJSON, &enabled,
+		&cp.APIPath, &cp.AuthHeader, &cp.AuthEnvVar, &modelsJSON, &cp.DefaultModel, &enabled,
 		&cp.CreatedAt, &cp.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -188,10 +189,10 @@ func (ps *ProviderStore) Create(cp *CustomProvider) (int64, error) {
 
 	id, err := ps.db.InsertReturningID(`
 		INSERT INTO custom_providers (name, display_name, base_url, api_format, api_path,
-		                              auth_header, auth_env_var, models_json, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                              auth_header, auth_env_var, models_json, default_model, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, cp.Name, cp.DisplayName, cp.BaseURL, cp.APIFormat, cp.APIPath,
-		cp.AuthHeader, cp.AuthEnvVar, string(modelsJSON), enabled, now, now)
+		cp.AuthHeader, cp.AuthEnvVar, string(modelsJSON), cp.DefaultModel, enabled, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("insert custom_providers: %w", err)
 	}
@@ -234,6 +235,55 @@ func (ps *ProviderStore) SeedOpenRouter() (bool, error) {
 	return true, nil
 }
 
+// SeedProviderFamilies registers ready-to-use OpenRouter-backed family providers on
+// first run, each with a cheap default model used as the redirect-failover target.
+// Names avoid the reserved built-ins (openai/anthropic/google), so the OpenAI/Anthropic/
+// Google families use the "or-" prefix; auth is the OPENROUTER_API_KEY env var. Idempotent
+// per-name. Returns the count created.
+func (ps *ProviderStore) SeedProviderFamilies() (int, error) {
+	existing, err := ps.All()
+	if err != nil {
+		return 0, err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, cp := range existing {
+		have[cp.Name] = true
+	}
+
+	families := []struct{ name, display, model string }{
+		{"or-openai", "OpenAI (OpenRouter)", "openai/gpt-4o-mini"},
+		{"or-anthropic", "Anthropic (OpenRouter)", "anthropic/claude-3.5-haiku"},
+		{"or-google", "Google (OpenRouter)", "google/gemini-2.0-flash-001"},
+		{"llama", "Llama (OpenRouter)", "meta-llama/llama-3.1-8b-instruct"},
+		{"qwen", "Qwen (OpenRouter)", "qwen/qwen-2.5-7b-instruct"},
+		{"deepseek", "DeepSeek (OpenRouter)", "deepseek/deepseek-chat"},
+	}
+
+	created := 0
+	for _, f := range families {
+		if have[f.name] {
+			continue // already present (possibly user-edited) — leave it alone
+		}
+		cp := &CustomProvider{
+			Name:         f.name,
+			DisplayName:  f.display,
+			BaseURL:      "https://openrouter.ai/api",
+			APIFormat:    "openai",
+			APIPath:      "/v1/chat/completions",
+			AuthEnvVar:   "OPENROUTER_API_KEY",
+			Models:       []string{f.model},
+			DefaultModel: f.model,
+			Enabled:      true,
+		}
+		if _, err := ps.Create(cp); err != nil {
+			log.Printf("[PROVIDERS] failed to seed family %q: %v", f.name, err)
+			continue
+		}
+		created++
+	}
+	return created, nil
+}
+
 // Update modifies an existing custom provider. Validates before update.
 func (ps *ProviderStore) Update(cp *CustomProvider) error {
 	if err := Validate(cp); err != nil {
@@ -254,10 +304,10 @@ func (ps *ProviderStore) Update(cp *CustomProvider) error {
 	_, err := ps.db.Exec(`
 		UPDATE custom_providers
 		SET display_name = ?, base_url = ?, api_format = ?, api_path = ?,
-		    auth_header = ?, auth_env_var = ?, models_json = ?, enabled = ?, updated_at = ?
+		    auth_header = ?, auth_env_var = ?, models_json = ?, default_model = ?, enabled = ?, updated_at = ?
 		WHERE id = ?
 	`, cp.DisplayName, cp.BaseURL, cp.APIFormat, cp.APIPath,
-		cp.AuthHeader, cp.AuthEnvVar, string(modelsJSON), enabled, now, cp.ID)
+		cp.AuthHeader, cp.AuthEnvVar, string(modelsJSON), cp.DefaultModel, enabled, now, cp.ID)
 	if err != nil {
 		return fmt.Errorf("update custom_providers: %w", err)
 	}
@@ -317,7 +367,7 @@ func (ps *ProviderStore) Toggle(id int64, enabled bool) error {
 func (ps *ProviderStore) ReloadCache() {
 	rows, err := ps.db.Query(`
 		SELECT id, name, display_name, base_url, api_format, api_path,
-		       auth_header, auth_env_var, models_json, enabled, created_at, updated_at
+		       auth_header, auth_env_var, models_json, default_model, enabled, created_at, updated_at
 		FROM custom_providers WHERE enabled = 1
 	`)
 	if err != nil {
@@ -398,7 +448,7 @@ func scanProvider(s scannable) (*CustomProvider, error) {
 	var modelsJSON string
 	var enabled int
 	err := s.Scan(&cp.ID, &cp.Name, &cp.DisplayName, &cp.BaseURL, &cp.APIFormat,
-		&cp.APIPath, &cp.AuthHeader, &cp.AuthEnvVar, &modelsJSON, &enabled,
+		&cp.APIPath, &cp.AuthHeader, &cp.AuthEnvVar, &modelsJSON, &cp.DefaultModel, &enabled,
 		&cp.CreatedAt, &cp.UpdatedAt)
 	if err != nil {
 		return nil, err

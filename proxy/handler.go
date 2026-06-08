@@ -215,13 +215,25 @@ func (h *Handler) HandleGemini(w http.ResponseWriter, r *http.Request) {
 	h.handleRequest(w, r, "gemini", GeminiBaseURL+endpoint, false)
 }
 
+// providerAttempt is one entry in a Provider-Failover redirect chain: a configured
+// custom provider's upstream URL, its default model, and the resolved auth header.
+type providerAttempt struct {
+	name  string
+	url   string
+	model string
+	auth  string
+}
+
 // executeUpstreamRequest performs the HTTP request with retry and optional fallback.
 // Returns the response, status code, error, retry stats, and (if fallback was used)
 // the fallback provider/model names and the matched fallback config ID.
+// providerChain (from a Provider-Failover redirect rule) is tried in order — each
+// provider with its default model — after retries on the primary are exhausted.
 func (h *Handler) executeUpstreamRequest(
 	agentID, provider, model, upstreamURL string,
 	bodyBytes []byte,
 	headers http.Header,
+	providerChain []providerAttempt,
 ) (*http.Response, int, error, reliability.RetryResult, string, string, int64) {
 
 	// doRequest is the shared helper that builds and fires one HTTP request.
@@ -267,6 +279,32 @@ func (h *Handler) executeUpstreamRequest(
 	// If the retry loop succeeded, return the captured response directly
 	if retryErr == nil && lastResp != nil {
 		return lastResp, lastResp.StatusCode, nil, retryResult, "", "", 0
+	}
+
+	// ── Provider failover chain (from a Provider-Failover redirect rule) ─────
+	// Try each configured provider in order, using its default_model; first
+	// non-retryable 2xx wins. Runs whenever the chain is set (explicit operator
+	// rule), independent of the global FallbackEnabled toggle.
+	for _, at := range providerChain {
+		var rd map[string]interface{}
+		_ = json.Unmarshal(bodyBytes, &rd)
+		if rd != nil {
+			rd["model"] = at.model
+		}
+		chainBody, _ := json.Marshal(rd)
+		hdrs := headers.Clone()
+		if at.auth != "" {
+			hdrs.Set("Authorization", at.auth)
+		}
+		log.Printf("[FAILOVER] %s/%s failed; trying %s/%s", provider, model, at.name, at.model)
+		resp, err := doRequest(at.url, chainBody, hdrs)
+		if err == nil && !reliability.IsRetryableError(resp.StatusCode, nil) {
+			log.Printf("[FAILOVER] success via %s/%s (status %d)", at.name, at.model, resp.StatusCode)
+			return resp, resp.StatusCode, nil, retryResult, at.name, at.model, 0
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
 	}
 
 	// ── Fallback (only when all retries are exhausted) ──────────────────────
@@ -552,6 +590,10 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		}
 	}
 
+	// Provider failover chain set by a matched Provider-Failover redirect rule;
+	// passed to executeUpstreamRequest to cascade on primary failure.
+	var providerFallbackChain []providerAttempt
+
 	if !trackOnly && h.rulesEngine != nil {
 		rctx := &rules.RuleContext{
 			AgentID:                 agentID,
@@ -603,8 +645,39 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 				}
 
 			case rules.ActionRedirect:
-				// Change upstream URL
-				upstreamURL = result.RedirectURL
+				if len(result.RedirectProviders) > 0 && h.providerStore != nil {
+					// Build the ordered failover chain from configured providers; each
+					// uses its default_model. Primary = chain[0] (rewrite URL/model/auth now),
+					// the rest cascade in executeUpstreamRequest on failure.
+					var chain []providerAttempt
+					for _, pname := range result.RedirectProviders {
+						cp := h.providerStore.Lookup(pname)
+						if cp == nil {
+							continue // unknown/disabled provider — skip
+						}
+						am := cp.DefaultModel
+						if am == "" {
+							am = model // fall back to the requested model if no default set
+						}
+						chain = append(chain, providerAttempt{name: cp.Name, url: cp.UpstreamURL(), model: am, auth: cp.ResolveAuthHeader()})
+					}
+					if len(chain) > 0 {
+						prim := chain[0]
+						provider, model, upstreamURL = prim.name, prim.model, prim.url
+						reqData["model"] = prim.model
+						if b, err := json.Marshal(reqData); err == nil {
+							bodyBytes = b
+						}
+						if prim.auth != "" {
+							upstreamHeaders.Set("Authorization", prim.auth)
+						}
+						providerFallbackChain = chain[1:]
+						log.Printf("[FAILOVER] rule %q → chain %v (primary %s/%s)", result.MatchedRule.Name, result.RedirectProviders, prim.name, prim.model)
+					}
+				} else if result.RedirectURL != "" {
+					// Legacy single-URL redirect.
+					upstreamURL = result.RedirectURL
+				}
 			}
 		}
 	}
@@ -768,7 +841,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// ── Upstream request with retry and fallback ────────────────────────────
 	upstreamStart := time.Now()
 	resp, finalStatus, upstreamErr, retryResult, fallbackProvider, fallbackModel, fallbackConfigID := h.executeUpstreamRequest(
-		agentID, provider, model, upstreamURL, bodyBytes, upstreamHeaders,
+		agentID, provider, model, upstreamURL, bodyBytes, upstreamHeaders, providerFallbackChain,
 	)
 	latencyMs := time.Since(upstreamStart).Milliseconds()
 

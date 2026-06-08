@@ -2402,6 +2402,32 @@ select option:checked {
     font-weight: 600;
 }
 
+/* Primary badge for the head of a Provider-Failover redirect chain. */
+.badge-primary {
+    background: var(--accent-subtle, rgba(47, 129, 247, 0.12));
+    color: var(--accent, #2f81f7);
+    border: 1px solid rgba(47, 129, 247, 0.25);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Provider-Failover redirect chain rows (rule editor). */
+.redirect-chain { display: flex; flex-direction: column; gap: 6px; }
+.redirect-chain-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+}
+.redirect-chain-handle { cursor: grab; color: var(--text-muted); user-select: none; }
+.redirect-chain-name { font-weight: 600; font-size: 13px; }
+.redirect-chain-model { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
 .badge-muted {
     background: var(--bg-elevated);
     color: var(--text-muted);
