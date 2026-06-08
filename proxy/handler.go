@@ -22,6 +22,7 @@ import (
 	"tokomoco/memory"
 	"tokomoco/metrics"
 	"tokomoco/nemoguard"
+	"tokomoco/nemoguardrails"
 	"tokomoco/providers"
 	"tokomoco/redactor"
 	"tokomoco/reliability"
@@ -93,13 +94,14 @@ type Handler struct {
 	memoryStore    *memory.Store              // optional; nil if memory layer is disabled
 	providerStore  *providers.ProviderStore   // optional; nil if no custom providers configured
 	nemoGuard      *nemoguard.Detector        // optional; nil if NeMo Guard jailbreak detection disabled
+	nemoGuardrails *nemoguardrails.Client     // optional; nil if NeMo Guardrails service (/guard API) disabled
 	persistSem     chan struct{}              // semaphore to cap concurrent persist goroutines
 	scMu           sync.RWMutex               // protects semanticCache hot-swap
 }
 
 // NewHandler creates a new proxy handler.
 // cfg must be a pointer so runtime settings changes (via the settings API) take effect immediately.
-func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dashboard.Hub, db *store.DB, cfg *config.Config, re *rules.Engine, fs *reliability.FallbackStore, rc *cache.ResponseCache, sc *cache.SemanticCache, ms *memory.Store, ps *providers.ProviderStore, ng *nemoguard.Detector) *Handler {
+func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dashboard.Hub, db *store.DB, cfg *config.Config, re *rules.Engine, fs *reliability.FallbackStore, rc *cache.ResponseCache, sc *cache.SemanticCache, ms *memory.Store, ps *providers.ProviderStore, ng *nemoguard.Detector, ngr *nemoguardrails.Client) *Handler {
 	tc, _ := tracker.NewTokenCounter()
 
 	// Map injection mode from config string to injector constant
@@ -127,15 +129,16 @@ func NewHandler(st *tracker.SessionTracker, ld *detector.LoopDetector, hub *dash
 			InjectContent:    mode == injector.ModeContent,
 		},
 		// Single shared HTTP client — connection pool is reused across requests.
-		httpClient:    &http.Client{Timeout: cfg.UpstreamTimeout()},
-		rulesEngine:   re, // nil if rules are disabled
-		fallbackStore: fs, // nil if fallback configs not used
-		responseCache: rc, // nil if cache is disabled
-		semanticCache: sc, // nil if semantic cache is disabled
-		memoryStore:   ms, // nil if memory is disabled
-		providerStore: ps, // nil if no custom providers
-		nemoGuard:     ng, // nil if NeMo Guard jailbreak detection disabled
-		persistSem:    make(chan struct{}, maxPersistGoroutines),
+		httpClient:     &http.Client{Timeout: cfg.UpstreamTimeout()},
+		rulesEngine:    re,  // nil if rules are disabled
+		fallbackStore:  fs,  // nil if fallback configs not used
+		responseCache:  rc,  // nil if cache is disabled
+		semanticCache:  sc,  // nil if semantic cache is disabled
+		memoryStore:    ms,  // nil if memory is disabled
+		providerStore:  ps,  // nil if no custom providers
+		nemoGuard:      ng,  // nil if NeMo Guard jailbreak detection disabled
+		nemoGuardrails: ngr, // nil if NeMo Guardrails service (/guard API) disabled
+		persistSem:     make(chan struct{}, maxPersistGoroutines),
 	}
 }
 
@@ -508,20 +511,46 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		}
 	}
 
+	// ── NeMo Guardrails service input gate (POST /guard/input) ──────────────
+	// Enabled when CONFIG_NEMOGUARDRAILS_URL is set. The triage verdict feeds the
+	// rules engine (CondGuardrails) + the default auto-block below. Input is
+	// FAIL-CLOSED in block mode (the service is the safety authority); flag mode
+	// allows on error.
+	var grBlocked bool
+	var grViolationType string
+	var grReason string
+	if h.nemoGuardrails != nil {
+		grCtx, cancel := context.WithTimeout(r.Context(), h.cfg.NeMoGuardrailsTimeout())
+		gv, grErr := h.nemoGuardrails.GuardInput(grCtx, messages)
+		cancel()
+		if grErr != nil {
+			if h.nemoGuardrails.Mode() == "block" {
+				grBlocked, grViolationType, grReason = true, "unavailable", "guardrails unavailable; fail-closed"
+				log.Printf("[NEMOGUARDRAILS] input check failed (fail-closed): %v", grErr)
+			} else {
+				log.Printf("[NEMOGUARDRAILS] input check failed (flag mode, allowing): %v", grErr)
+			}
+		} else if gv.Blocked {
+			grBlocked, grViolationType, grReason = true, gv.ViolationType, gv.Reason
+		}
+	}
+
 	if h.rulesEngine != nil {
 		rctx := &rules.RuleContext{
-			AgentID:           agentID,
-			AppName:           appName,
-			Provider:          provider,
-			Model:             model,
-			Session:           session,
-			InputTokens:       inputTokens,
-			Cost:              estimatedCost,
-			LoopResult:        loopResult,
-			PromptPreview:     promptPreview,
-			RawMessages:       messages,
-			JailbreakDetected: jbDetected,
-			JailbreakScore:    jbScore,
+			AgentID:                 agentID,
+			AppName:                 appName,
+			Provider:                provider,
+			Model:                   model,
+			Session:                 session,
+			InputTokens:             inputTokens,
+			Cost:                    estimatedCost,
+			LoopResult:              loopResult,
+			PromptPreview:           promptPreview,
+			RawMessages:             messages,
+			JailbreakDetected:       jbDetected,
+			JailbreakScore:          jbScore,
+			GuardrailsBlocked:       grBlocked,
+			GuardrailsViolationType: grViolationType,
 		}
 		result, matched := h.rulesEngine.Evaluate(rctx)
 		if matched && result.MatchedRule != nil {
@@ -577,6 +606,26 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 			"", "", 0, 0, false,
 			0, "",
 			jbDetected, jbScore, jbCategory)
+		return
+	}
+
+	// ── NeMo Guardrails default auto-block ──────────────────────────────────
+	// A CondGuardrails rule (if any) already returned above. Otherwise, when the
+	// triage rails blocked the input and mode is "block" (default), reject here.
+	// Recorded via the jailbreak audit columns as "nemoguardrails:<violation_type>".
+	if grBlocked && h.nemoGuardrails != nil && h.nemoGuardrails.Mode() == "block" {
+		msg := "Request blocked by NeMo Guardrails."
+		if grReason != "" {
+			msg = "Request blocked by NeMo Guardrails: " + grReason
+		}
+		http.Error(w, msg, http.StatusForbidden)
+		h.persistAndBroadcast(session, provider, model, agentID, appName,
+			promptPreview, inputTokens, 0, estimatedCost, 0,
+			http.StatusForbidden, false, loopResult,
+			"Blocked: "+grViolationType+" (nemoguardrails)",
+			"", "", 0, 0, false,
+			0, "",
+			true, 0, "nemoguardrails:"+grViolationType)
 		return
 	}
 
@@ -1170,6 +1219,13 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 		h.logInjection(session.ID, loopResult, totalCost, model)
 	}
 
+	// ── NeMo Guardrails output gate (POST /guard/output) ────────────────────
+	// Mask PII / block flagged output before forwarding. Non-streaming only
+	// (streaming responses are not output-guarded); fail-open; skip error bodies.
+	if h.nemoGuardrails != nil && resp.StatusCode < 400 {
+		bodyBytes = h.applyOutputGuard(bodyBytes, apiFormat)
+	}
+
 	// Forward upstream status + headers verbatim; strip Content-Length (body may differ after injection)
 	w.Header().Del("Content-Length")
 	for key, values := range resp.Header {
@@ -1190,6 +1246,79 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 		errorMessage:      errorMessage,
 		responseBody:      bodyBytes,
 	}
+}
+
+// applyOutputGuard runs the NeMo Guardrails output rails (POST /guard/output) on
+// the assistant reply in a non-streaming response body. When the verdict is
+// flagged it rewrites the assistant content with masked_text (PII) or a refusal
+// (moderation block). Fail-open: any error returns the body unchanged.
+func (h *Handler) applyOutputGuard(bodyBytes []byte, apiFormat string) []byte {
+	if h.nemoGuardrails == nil {
+		return bodyBytes
+	}
+	var response map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return bodyBytes
+	}
+	content, setContent := assistantContentRef(response, apiFormat)
+	if setContent == nil || strings.TrimSpace(content) == "" {
+		return bodyBytes
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), h.cfg.NeMoGuardrailsTimeout())
+	defer cancel()
+	v, err := h.nemoGuardrails.GuardOutput(ctx, content)
+	if err != nil {
+		log.Printf("[NEMOGUARDRAILS] output check failed (allowing): %v", err)
+		return bodyBytes
+	}
+	if !v.Flagged {
+		return bodyBytes
+	}
+	replacement := v.MaskedText
+	if strings.TrimSpace(replacement) == "" {
+		replacement = "[blocked by NeMo Guardrails]"
+	}
+	setContent(replacement)
+	out, err := json.Marshal(response)
+	if err != nil {
+		return bodyBytes
+	}
+	log.Printf("[NEMOGUARDRAILS] output flagged (%s); rewrote assistant content", v.Reason)
+	return out
+}
+
+// assistantContentRef returns the assistant text from a non-streaming response and
+// a setter that writes a replacement back into the same JSON node (maps are
+// references, so mutating it updates `response`). Returns a nil setter when the
+// shape is unrecognised.
+func assistantContentRef(response map[string]interface{}, apiFormat string) (string, func(string)) {
+	if apiFormat == "openai" || apiFormat == "gemini" {
+		choices, ok := response["choices"].([]interface{})
+		if !ok || len(choices) == 0 {
+			return "", nil
+		}
+		choice, ok := choices[0].(map[string]interface{})
+		if !ok {
+			return "", nil
+		}
+		message, ok := choice["message"].(map[string]interface{})
+		if !ok {
+			return "", nil
+		}
+		content, _ := message["content"].(string)
+		return content, func(s string) { message["content"] = s }
+	}
+	// anthropic
+	contentArr, ok := response["content"].([]interface{})
+	if !ok || len(contentArr) == 0 {
+		return "", nil
+	}
+	block, ok := contentArr[0].(map[string]interface{})
+	if !ok {
+		return "", nil
+	}
+	text, _ := block["text"].(string)
+	return text, func(s string) { block["text"] = s }
 }
 
 // broadcastSessionUpdate pushes in-memory session totals to all dashboard clients.

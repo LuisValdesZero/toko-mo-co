@@ -73,13 +73,13 @@ type Config struct {
 	PIICategories string `json:"pii_categories"` // Comma-separated enabled category keys (default: all)
 
 	// Semantic Cache
-	SemanticCacheEnabled    bool    `json:"semantic_cache_enabled"`     // Enable embedding-based cache (default: false)
-	SemanticCacheThreshold  float64 `json:"semantic_cache_threshold"`   // Cosine similarity threshold 0–1 (default: 0.95)
-	SemanticCacheMaxVectors int     `json:"semantic_cache_max_vectors"` // Max stored vectors (default: 10000)
-	EmbeddingProvider       string  `json:"embedding_provider"`         // "openai" | "aratiri-bge-m3" (default: openai)
-	EmbeddingModel          string  `json:"embedding_model"`            // Embedding model name (default: text-embedding-3-small)
-	EmbeddingAPIKey         string  `json:"embedding_api_key"`          // Embedding API key (OpenAI: OPENAI_API_KEY; aratiri-bge-m3: PLATFORM_API_KEY, sent as X-API-Key)
-	EmbeddingBaseURL        string  `json:"embedding_base_url"`         // Base URL for the aratiri-bge-m3 provider (.../api/v1; /embed appended)
+	SemanticCacheEnabled      bool    `json:"semantic_cache_enabled"`       // Enable embedding-based cache (default: false)
+	SemanticCacheThreshold    float64 `json:"semantic_cache_threshold"`     // Cosine similarity threshold 0–1 (default: 0.95)
+	SemanticCacheMaxVectors   int     `json:"semantic_cache_max_vectors"`   // Max stored vectors (default: 10000)
+	EmbeddingProvider         string  `json:"embedding_provider"`           // "openai" | "aratiri-bge-m3" (default: openai)
+	EmbeddingModel            string  `json:"embedding_model"`              // Embedding model name (default: text-embedding-3-small)
+	EmbeddingAPIKey           string  `json:"embedding_api_key"`            // Embedding API key (OpenAI: OPENAI_API_KEY; aratiri-bge-m3: PLATFORM_API_KEY, sent as X-API-Key)
+	EmbeddingBaseURL          string  `json:"embedding_base_url"`           // Base URL for the aratiri-bge-m3 provider (.../api/v1; /embed appended)
 	SemanticCacheSparseWeight float64 `json:"semantic_cache_sparse_weight"` // Hybrid blend: weight of the sparse score, 0–1 (bge-m3 only; default 0.3)
 
 	// Pricing
@@ -101,60 +101,75 @@ type Config struct {
 	NeMoGuardMode         string  `json:"nemo_guard_mode"`          // "block" (default) | "flag"
 	NeMoGuardThreshold    float64 `json:"nemo_guard_threshold"`     // score >= threshold = jailbreak (when NIM returns a score)
 	NeMoGuardTimeoutSec   int     `json:"nemo_guard_timeout_sec"`   // per-request timeout (default: 10)
+
+	// NeMo Guardrails service — the self-hosted Aratiri /guard API (distinct from
+	// the NeMo Guard NIM above). Env-gated; enabled when NeMoGuardrailsURL is set.
+	NeMoGuardrailsURL        string `json:"nemo_guardrails_url"`         // /guard service base URL; empty = disabled
+	NeMoGuardrailsInputPath  string `json:"nemo_guardrails_input_path"`  // triage endpoint (default: /guard/input)
+	NeMoGuardrailsOutputPath string `json:"nemo_guardrails_output_path"` // output endpoint (default: /guard/output)
+	NeMoGuardrailsMode       string `json:"nemo_guardrails_mode"`        // "block" (default) | "flag"
+	NeMoGuardrailsCaller     string `json:"nemo_guardrails_caller"`      // sent as the "caller" field (default: toko-mo-co)
+	NeMoGuardrailsAPIKey     string `json:"nemo_guardrails_api_key"`     // optional Bearer token
+	NeMoGuardrailsTimeoutSec int    `json:"nemo_guardrails_timeout_sec"` // per-request timeout (default: 12)
 }
 
 // Default returns a Config with all defaults pre-filled.
 func Default() Config {
 	return Config{
-		Port:                    "8081",
-		AllowedOrigins:          "*",
-		DBPath:                  "proxy.db",
-		DBKeepDays:              30,
-		UpstreamTimeoutSec:      300,
-		LoopThreshold:           3,
-		LoopSimilarity:          0.8,
-		LoopWindowMinutes:       5,
-		HistoryLimit:            200,
-		SessionMaxAge:           24,
-		SessionMaxSize:          10_000,
-		InjectionMode:           "metadata",
-		ContentThreshold:        10.0,
-		RulesEnabled:            true,
-		RetryEnabled:            true,
-		RetryMaxAttempts:        3,
-		RetryInitialDelay:       1000,  // 1 second
-		RetryMaxDelay:           30000, // 30 seconds
-		FallbackEnabled:         false, // Conservative default
-		FallbackStrategy:        "same_tier",
-		AuthEnabled:             false, // Off by default — enable after creating first key
-		CacheEnabled:            true,
-		CacheMaxEntries:         1000,
-		CacheTTLMinutes:         60,
-		CacheOnlyTemp0:          true,
-		PIIEnabled:              false, // Off by default — enable in Security settings
-		PIIMode:                 "redact",
-		PIICategories:           "",    // Empty = all categories when enabled (populated on first save)
-		SemanticCacheEnabled:    false, // Off by default — requires embedding API key
-		SemanticCacheThreshold:  0.95,
-		SemanticCacheMaxVectors: 10000,
-		EmbeddingProvider:       "openai",
-		EmbeddingModel:          "text-embedding-3-small",
-		EmbeddingAPIKey:         "",    // Falls back to OPENAI_API_KEY env var
-		EmbeddingBaseURL:        "http://platform-api.service.consul:8000/api/v1", // aratiri-bge-m3 provider
-		SemanticCacheSparseWeight: 0.3,
+		Port:                         "8081",
+		AllowedOrigins:               "*",
+		DBPath:                       "proxy.db",
+		DBKeepDays:                   30,
+		UpstreamTimeoutSec:           300,
+		LoopThreshold:                3,
+		LoopSimilarity:               0.8,
+		LoopWindowMinutes:            5,
+		HistoryLimit:                 200,
+		SessionMaxAge:                24,
+		SessionMaxSize:               10_000,
+		InjectionMode:                "metadata",
+		ContentThreshold:             10.0,
+		RulesEnabled:                 true,
+		RetryEnabled:                 true,
+		RetryMaxAttempts:             3,
+		RetryInitialDelay:            1000,  // 1 second
+		RetryMaxDelay:                30000, // 30 seconds
+		FallbackEnabled:              false, // Conservative default
+		FallbackStrategy:             "same_tier",
+		AuthEnabled:                  false, // Off by default — enable after creating first key
+		CacheEnabled:                 true,
+		CacheMaxEntries:              1000,
+		CacheTTLMinutes:              60,
+		CacheOnlyTemp0:               true,
+		PIIEnabled:                   false, // Off by default — enable in Security settings
+		PIIMode:                      "redact",
+		PIICategories:                "",    // Empty = all categories when enabled (populated on first save)
+		SemanticCacheEnabled:         false, // Off by default — requires embedding API key
+		SemanticCacheThreshold:       0.95,
+		SemanticCacheMaxVectors:      10000,
+		EmbeddingProvider:            "openai",
+		EmbeddingModel:               "text-embedding-3-small",
+		EmbeddingAPIKey:              "",                                               // Falls back to OPENAI_API_KEY env var
+		EmbeddingBaseURL:             "http://platform-api.service.consul:8000/api/v1", // aratiri-bge-m3 provider
+		SemanticCacheSparseWeight:    0.3,
 		PricingOpenRouterAutoRefresh: true,
-		MemoryEnabled:           false, // Off by default — requires embedding API key
-		MemoryMaxEntries:        10000,
-		MemoryThreshold:         0.7, // Lower than semantic cache — memories are loosely related
-		MemoryMaxResults:        5,
-		MemoryRecencyLambda:     0.01, // 30-day-old memory retains ~74% weight
-		MemoryConflictThresh:    0.85, // Similarity threshold for conflict detection
-		MemoryTTLDays:           90,   // Memories not accessed in 90 days are eviction candidates
+		MemoryEnabled:                false, // Off by default — requires embedding API key
+		MemoryMaxEntries:             10000,
+		MemoryThreshold:              0.7, // Lower than semantic cache — memories are loosely related
+		MemoryMaxResults:             5,
+		MemoryRecencyLambda:          0.01, // 30-day-old memory retains ~74% weight
+		MemoryConflictThresh:         0.85, // Similarity threshold for conflict detection
+		MemoryTTLDays:                90,   // Memories not accessed in 90 days are eviction candidates
 
-		NeMoGuardClassifyPath: "/v1/classify",
-		NeMoGuardMode:         "block",
-		NeMoGuardThreshold:    0.5,
-		NeMoGuardTimeoutSec:   10,
+		NeMoGuardClassifyPath:    "/v1/classify",
+		NeMoGuardMode:            "block",
+		NeMoGuardThreshold:       0.5,
+		NeMoGuardTimeoutSec:      10,
+		NeMoGuardrailsInputPath:  "/guard/input",
+		NeMoGuardrailsOutputPath: "/guard/output",
+		NeMoGuardrailsMode:       "block",
+		NeMoGuardrailsCaller:     "toko-mo-co",
+		NeMoGuardrailsTimeoutSec: 12,
 	}
 }
 
@@ -297,6 +312,15 @@ func applyEnv(cfg *Config) {
 	setStr("CONFIG_NEMOGUARD_MODE", &cfg.NeMoGuardMode)
 	setFloat("CONFIG_NEMOGUARD_THRESHOLD", &cfg.NeMoGuardThreshold)
 	setInt("CONFIG_NEMOGUARD_TIMEOUT_SEC", &cfg.NeMoGuardTimeoutSec)
+
+	// NeMo Guardrails service (/guard API) — presence of the URL enables the feature
+	setStr("CONFIG_NEMOGUARDRAILS_URL", &cfg.NeMoGuardrailsURL)
+	setStr("CONFIG_NEMOGUARDRAILS_INPUT_PATH", &cfg.NeMoGuardrailsInputPath)
+	setStr("CONFIG_NEMOGUARDRAILS_OUTPUT_PATH", &cfg.NeMoGuardrailsOutputPath)
+	setStr("CONFIG_NEMOGUARDRAILS_MODE", &cfg.NeMoGuardrailsMode)
+	setStr("CONFIG_NEMOGUARDRAILS_CALLER", &cfg.NeMoGuardrailsCaller)
+	setStr("CONFIG_NEMOGUARDRAILS_API_KEY", &cfg.NeMoGuardrailsAPIKey)
+	setInt("CONFIG_NEMOGUARDRAILS_TIMEOUT_SEC", &cfg.NeMoGuardrailsTimeoutSec)
 }
 
 // validate returns an error if any config value is out of range.
@@ -474,6 +498,11 @@ func (cfg *Config) NeMoGuardTimeout() time.Duration {
 	return time.Duration(cfg.NeMoGuardTimeoutSec) * time.Second
 }
 
+// NeMoGuardrailsTimeout converts the per-request timeout to a time.Duration.
+func (cfg *Config) NeMoGuardrailsTimeout() time.Duration {
+	return time.Duration(cfg.NeMoGuardrailsTimeoutSec) * time.Second
+}
+
 // SessionMaxAgeDuration converts the max-age setting to a time.Duration.
 func (cfg *Config) SessionMaxAgeDuration() time.Duration {
 	return time.Duration(cfg.SessionMaxAge) * time.Hour
@@ -516,40 +545,40 @@ func (cfg *Config) log() {
 // SettingsResponse is the JSON subset of Config exposed to the settings UI.
 // Only fields that the user should be able to tweak at runtime are included.
 type SettingsResponse struct {
-	RetryEnabled            bool    `json:"retry_enabled"`
-	RetryMaxAttempts        int     `json:"retry_max_attempts"`
-	RetryInitialDelay       int     `json:"retry_initial_delay_ms"`
-	RetryMaxDelay           int     `json:"retry_max_delay_ms"`
-	FallbackEnabled         bool    `json:"fallback_enabled"`
-	FallbackStrategy        string  `json:"fallback_strategy"`
-	LoopThreshold           int     `json:"loop_threshold"`
-	LoopSimilarity          float64 `json:"loop_similarity"` // 0–1
-	LoopWindowMinutes       int     `json:"loop_window_minutes"`
-	InjectionMode           string  `json:"injection_mode"`        // "metadata" | "content" | "hybrid"
-	ContentThreshold        float64 `json:"content_threshold_usd"` // Cost to escalate to content injection
-	CacheEnabled            bool    `json:"cache_enabled"`
-	CacheMaxEntries         int     `json:"cache_max_entries"`
-	CacheTTLMinutes         int     `json:"cache_ttl_minutes"`
-	CacheOnlyTemp0          bool    `json:"cache_only_temp0"`
-	PIIEnabled              bool    `json:"pii_enabled"`
-	PIIMode                 string  `json:"pii_mode"`
-	PIICategories           string  `json:"pii_categories"`
-	SemanticCacheEnabled    bool    `json:"semantic_cache_enabled"`
-	SemanticCacheThreshold  float64 `json:"semantic_cache_threshold"`
-	SemanticCacheMaxVectors int     `json:"semantic_cache_max_vectors"`
-	EmbeddingProvider       string  `json:"embedding_provider"`
-	EmbeddingModel          string  `json:"embedding_model"`
-	EmbeddingAPIKey         string  `json:"embedding_api_key"`
-	EmbeddingBaseURL        string  `json:"embedding_base_url"`
-	EmbeddingKeyConfigured  bool    `json:"embedding_key_configured"` // effective key present (config or provider env fallback)
+	RetryEnabled              bool    `json:"retry_enabled"`
+	RetryMaxAttempts          int     `json:"retry_max_attempts"`
+	RetryInitialDelay         int     `json:"retry_initial_delay_ms"`
+	RetryMaxDelay             int     `json:"retry_max_delay_ms"`
+	FallbackEnabled           bool    `json:"fallback_enabled"`
+	FallbackStrategy          string  `json:"fallback_strategy"`
+	LoopThreshold             int     `json:"loop_threshold"`
+	LoopSimilarity            float64 `json:"loop_similarity"` // 0–1
+	LoopWindowMinutes         int     `json:"loop_window_minutes"`
+	InjectionMode             string  `json:"injection_mode"`        // "metadata" | "content" | "hybrid"
+	ContentThreshold          float64 `json:"content_threshold_usd"` // Cost to escalate to content injection
+	CacheEnabled              bool    `json:"cache_enabled"`
+	CacheMaxEntries           int     `json:"cache_max_entries"`
+	CacheTTLMinutes           int     `json:"cache_ttl_minutes"`
+	CacheOnlyTemp0            bool    `json:"cache_only_temp0"`
+	PIIEnabled                bool    `json:"pii_enabled"`
+	PIIMode                   string  `json:"pii_mode"`
+	PIICategories             string  `json:"pii_categories"`
+	SemanticCacheEnabled      bool    `json:"semantic_cache_enabled"`
+	SemanticCacheThreshold    float64 `json:"semantic_cache_threshold"`
+	SemanticCacheMaxVectors   int     `json:"semantic_cache_max_vectors"`
+	EmbeddingProvider         string  `json:"embedding_provider"`
+	EmbeddingModel            string  `json:"embedding_model"`
+	EmbeddingAPIKey           string  `json:"embedding_api_key"`
+	EmbeddingBaseURL          string  `json:"embedding_base_url"`
+	EmbeddingKeyConfigured    bool    `json:"embedding_key_configured"` // effective key present (config or provider env fallback)
 	SemanticCacheSparseWeight float64 `json:"semantic_cache_sparse_weight"`
-	MemoryEnabled           bool    `json:"memory_enabled"`
-	MemoryMaxEntries        int     `json:"memory_max_entries"`
-	MemoryThreshold         float64 `json:"memory_threshold"`
-	MemoryMaxResults        int     `json:"memory_max_results"`
-	MemoryRecencyLambda     float64 `json:"memory_recency_lambda"`
-	MemoryConflictThresh    float64 `json:"memory_conflict_threshold"`
-	MemoryTTLDays           int     `json:"memory_ttl_days"`
+	MemoryEnabled             bool    `json:"memory_enabled"`
+	MemoryMaxEntries          int     `json:"memory_max_entries"`
+	MemoryThreshold           float64 `json:"memory_threshold"`
+	MemoryMaxResults          int     `json:"memory_max_results"`
+	MemoryRecencyLambda       float64 `json:"memory_recency_lambda"`
+	MemoryConflictThresh      float64 `json:"memory_conflict_threshold"`
+	MemoryTTLDays             int     `json:"memory_ttl_days"`
 }
 
 // SettingsPersister is the interface for persisting settings to a database.
@@ -590,40 +619,40 @@ func (s *SettingsAPI) SetOnChange(fn func(*Config)) {
 func (s *SettingsAPI) HandleGet(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	resp := SettingsResponse{
-		RetryEnabled:            s.cfg.RetryEnabled,
-		RetryMaxAttempts:        s.cfg.RetryMaxAttempts,
-		RetryInitialDelay:       s.cfg.RetryInitialDelay,
-		RetryMaxDelay:           s.cfg.RetryMaxDelay,
-		FallbackEnabled:         s.cfg.FallbackEnabled,
-		FallbackStrategy:        s.cfg.FallbackStrategy,
-		LoopThreshold:           s.cfg.LoopThreshold,
-		LoopSimilarity:          s.cfg.LoopSimilarity,
-		LoopWindowMinutes:       s.cfg.LoopWindowMinutes,
-		InjectionMode:           s.cfg.InjectionMode,
-		ContentThreshold:        s.cfg.ContentThreshold,
-		CacheEnabled:            s.cfg.CacheEnabled,
-		CacheMaxEntries:         s.cfg.CacheMaxEntries,
-		CacheTTLMinutes:         s.cfg.CacheTTLMinutes,
-		CacheOnlyTemp0:          s.cfg.CacheOnlyTemp0,
-		PIIEnabled:              s.cfg.PIIEnabled,
-		PIIMode:                 s.cfg.PIIMode,
-		PIICategories:           s.cfg.PIICategories,
-		SemanticCacheEnabled:    s.cfg.SemanticCacheEnabled,
-		SemanticCacheThreshold:  s.cfg.SemanticCacheThreshold,
-		SemanticCacheMaxVectors: s.cfg.SemanticCacheMaxVectors,
-		EmbeddingProvider:       s.cfg.EmbeddingProvider,
-		EmbeddingModel:          s.cfg.EmbeddingModel,
-		EmbeddingAPIKey:         maskAPIKey(s.cfg.EmbeddingAPIKey),
-		EmbeddingBaseURL:        s.cfg.EmbeddingBaseURL,
-		EmbeddingKeyConfigured:  s.cfg.ResolveEmbeddingAPIKey() != "",
+		RetryEnabled:              s.cfg.RetryEnabled,
+		RetryMaxAttempts:          s.cfg.RetryMaxAttempts,
+		RetryInitialDelay:         s.cfg.RetryInitialDelay,
+		RetryMaxDelay:             s.cfg.RetryMaxDelay,
+		FallbackEnabled:           s.cfg.FallbackEnabled,
+		FallbackStrategy:          s.cfg.FallbackStrategy,
+		LoopThreshold:             s.cfg.LoopThreshold,
+		LoopSimilarity:            s.cfg.LoopSimilarity,
+		LoopWindowMinutes:         s.cfg.LoopWindowMinutes,
+		InjectionMode:             s.cfg.InjectionMode,
+		ContentThreshold:          s.cfg.ContentThreshold,
+		CacheEnabled:              s.cfg.CacheEnabled,
+		CacheMaxEntries:           s.cfg.CacheMaxEntries,
+		CacheTTLMinutes:           s.cfg.CacheTTLMinutes,
+		CacheOnlyTemp0:            s.cfg.CacheOnlyTemp0,
+		PIIEnabled:                s.cfg.PIIEnabled,
+		PIIMode:                   s.cfg.PIIMode,
+		PIICategories:             s.cfg.PIICategories,
+		SemanticCacheEnabled:      s.cfg.SemanticCacheEnabled,
+		SemanticCacheThreshold:    s.cfg.SemanticCacheThreshold,
+		SemanticCacheMaxVectors:   s.cfg.SemanticCacheMaxVectors,
+		EmbeddingProvider:         s.cfg.EmbeddingProvider,
+		EmbeddingModel:            s.cfg.EmbeddingModel,
+		EmbeddingAPIKey:           maskAPIKey(s.cfg.EmbeddingAPIKey),
+		EmbeddingBaseURL:          s.cfg.EmbeddingBaseURL,
+		EmbeddingKeyConfigured:    s.cfg.ResolveEmbeddingAPIKey() != "",
 		SemanticCacheSparseWeight: s.cfg.SemanticCacheSparseWeight,
-		MemoryEnabled:           s.cfg.MemoryEnabled,
-		MemoryMaxEntries:        s.cfg.MemoryMaxEntries,
-		MemoryThreshold:         s.cfg.MemoryThreshold,
-		MemoryMaxResults:        s.cfg.MemoryMaxResults,
-		MemoryRecencyLambda:     s.cfg.MemoryRecencyLambda,
-		MemoryConflictThresh:    s.cfg.MemoryConflictThresh,
-		MemoryTTLDays:           s.cfg.MemoryTTLDays,
+		MemoryEnabled:             s.cfg.MemoryEnabled,
+		MemoryMaxEntries:          s.cfg.MemoryMaxEntries,
+		MemoryThreshold:           s.cfg.MemoryThreshold,
+		MemoryMaxResults:          s.cfg.MemoryMaxResults,
+		MemoryRecencyLambda:       s.cfg.MemoryRecencyLambda,
+		MemoryConflictThresh:      s.cfg.MemoryConflictThresh,
+		MemoryTTLDays:             s.cfg.MemoryTTLDays,
 	}
 	s.mu.RUnlock()
 

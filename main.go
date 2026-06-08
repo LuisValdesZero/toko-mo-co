@@ -22,6 +22,7 @@ import (
 	"tokomoco/memory"
 	"tokomoco/metrics"
 	"tokomoco/nemoguard"
+	"tokomoco/nemoguardrails"
 	"tokomoco/providers"
 	"tokomoco/proxy"
 	"tokomoco/reliability"
@@ -339,7 +340,18 @@ func main() {
 		log.Printf("[NEMOGUARD] disabled (set CONFIG_NEMOGUARD_URL to enable)")
 	}
 
-	proxyHandler := proxy.NewHandler(sessionTracker, loopDetector, wsHub, db, &cfg, rulesEngine, fallbackStore, responseCache, semanticCache, memoryStore, providerStore, nemoGuard)
+	// ── NeMo Guardrails service client (optional; CONFIG_NEMOGUARDRAILS_URL) ──
+	var nemoGuardrailsClient *nemoguardrails.Client
+	if cfg.NeMoGuardrailsURL != "" {
+		nemoGuardrailsClient = nemoguardrails.New(cfg.NeMoGuardrailsURL, cfg.NeMoGuardrailsInputPath,
+			cfg.NeMoGuardrailsOutputPath, cfg.NeMoGuardrailsAPIKey, cfg.NeMoGuardrailsMode,
+			cfg.NeMoGuardrailsCaller, cfg.NeMoGuardrailsTimeout())
+		log.Printf("[NEMOGUARDRAILS] enabled url=%s mode=%s", cfg.NeMoGuardrailsURL, cfg.NeMoGuardrailsMode)
+	} else {
+		log.Printf("[NEMOGUARDRAILS] disabled (set CONFIG_NEMOGUARDRAILS_URL to enable)")
+	}
+
+	proxyHandler := proxy.NewHandler(sessionTracker, loopDetector, wsHub, db, &cfg, rulesEngine, fallbackStore, responseCache, semanticCache, memoryStore, providerStore, nemoGuard, nemoGuardrailsClient)
 
 	// authWrap wraps a handler with API key auth middleware.
 	// When auth is disabled, this is a no-op passthrough.
