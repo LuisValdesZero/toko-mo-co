@@ -519,9 +519,12 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	var grBlocked bool
 	var grViolationType string
 	var grReason string
-	if h.nemoGuardrails != nil {
+	if h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) {
 		grCtx, cancel := context.WithTimeout(r.Context(), h.cfg.NeMoGuardrailsTimeout())
-		gv, grErr := h.nemoGuardrails.GuardInput(grCtx, messages)
+		// Only the LAST message: the input gate classifies the current turn, not the whole
+		// history. Sending the full transcript ("Message: Message: ...") was the dominant
+		// guardrails token cost for zero gate benefit.
+		gv, grErr := h.nemoGuardrails.GuardInput(grCtx, lastMessages(messages, 1))
 		cancel()
 		if grErr != nil {
 			if h.nemoGuardrails.Mode() == "block" {
@@ -812,7 +815,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		cachedInputTokens = sResult.cachedInputTokens
 		outputTokens = sResult.outputTokens
 	} else {
-		nsResult := h.handleNonStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, loopResult)
+		nsResult := h.handleNonStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, agentID, loopResult)
 		// Use exact provider-reported token counts (not tiktoken pre-estimates)
 		inputTokens = nsResult.inputTokens
 		cachedInputTokens = nsResult.cachedInputTokens
@@ -1176,7 +1179,7 @@ type nonStreamingResult struct {
 // handleNonStreamingResponse handles non-streaming responses.
 // It returns a nonStreamingResult with exact token counts from the provider
 // (falling back to tiktoken estimates only when the provider omits usage).
-func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt string, loopResult detector.LoopDetectionResult) nonStreamingResult {
+func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt, agentID string, loopResult detector.LoopDetectionResult) nonStreamingResult {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		http.Error(w, "Failed to read response", http.StatusBadGateway)
@@ -1222,7 +1225,7 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 	// ── NeMo Guardrails output gate (POST /guard/output) ────────────────────
 	// Mask PII / block flagged output before forwarding. Non-streaming only
 	// (streaming responses are not output-guarded); fail-open; skip error bodies.
-	if h.nemoGuardrails != nil && resp.StatusCode < 400 {
+	if h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) && resp.StatusCode < 400 {
 		bodyBytes = h.applyOutputGuard(bodyBytes, apiFormat)
 	}
 
@@ -1341,6 +1344,16 @@ func (h *Handler) broadcastSessionUpdate(session *tracker.Session, model, agentI
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// lastMessages returns the trailing n messages. The input guard classifies the
+// current turn only, so we send the last message rather than the whole transcript
+// (sending the full history was the dominant guardrails token cost).
+func lastMessages(msgs []map[string]any, n int) []map[string]any {
+	if n <= 0 || len(msgs) <= n {
+		return msgs
+	}
+	return msgs[len(msgs)-n:]
+}
 
 func extractPrompt(messages []map[string]interface{}) string {
 	if len(messages) == 0 {
