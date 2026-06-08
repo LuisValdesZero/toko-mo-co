@@ -244,35 +244,35 @@ func main() {
 	}
 
 	// ── Memory Layer ──────────────────────────────────────────────────────
+	// Build the store whenever an embedding key resolves (provider-aware, incl. the
+	// Aratiri bge-m3 env key), EVEN IF memory is currently disabled — created dormant
+	// (enabled=cfg.MemoryEnabled). This lets the dashboard toggle it on LIVE: onChange
+	// flips SetEnabled, the /api/memory routes are always registered, and the proxy
+	// uses it once `memoryStore != nil && IsEnabled() && cfg.MemoryEnabled` all hold.
+	// (Without this the store only ever existed when CONFIG_MEMORY_ENABLED=true at boot,
+	// so the live toggle did nothing and stats showed blank.)
 	var memoryStore *memory.Store
-	if cfg.MemoryEnabled {
-		// Memory layer reuses the same embedding provider as the semantic cache
-		// (built from the same config; selected by cfg.EmbeddingProvider).
-		var memEmb embedding.Embedder
-		memEmb2, memEmbErr := newEmbedderFromConfig(&cfg)
+	if cfg.ResolveEmbeddingAPIKey() != "" {
+		memEmb, memEmbErr := newEmbedderFromConfig(&cfg)
 		if memEmbErr != nil {
-			log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory disabled", memEmbErr)
+			log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory unavailable", memEmbErr)
 		} else {
-			memEmb = memEmb2
-		}
-
-		if memEmb != nil {
 			var memErr error
-			memoryStore, memErr = memory.NewStore(db.DB(), memEmb, cfg.MemoryMaxEntries, cfg.MemoryThreshold, true,
+			memoryStore, memErr = memory.NewStore(db.DB(), memEmb, cfg.MemoryMaxEntries, cfg.MemoryThreshold, cfg.MemoryEnabled,
 				memory.WithRecencyLambda(cfg.MemoryRecencyLambda),
 				memory.WithConflictThreshold(cfg.MemoryConflictThresh),
 				memory.WithTTLDays(cfg.MemoryTTLDays),
 			)
 			if memErr != nil {
-				log.Printf("[MEMORY] ⚠ store init failed: %v — memory disabled", memErr)
+				log.Printf("[MEMORY] ⚠ store init failed: %v — memory unavailable", memErr)
 				memoryStore = nil
 			} else {
-				log.Printf("[MEMORY] enabled threshold=%.2f maxEntries=%d maxResults=%d memories=%d",
-					cfg.MemoryThreshold, cfg.MemoryMaxEntries, cfg.MemoryMaxResults, memoryStore.Count())
+				log.Printf("[MEMORY] store ready enabled=%v threshold=%.2f maxEntries=%d maxResults=%d memories=%d",
+					cfg.MemoryEnabled, cfg.MemoryThreshold, cfg.MemoryMaxEntries, cfg.MemoryMaxResults, memoryStore.Count())
 			}
 		}
 	} else {
-		log.Printf("[MEMORY] disabled (set CONFIG_MEMORY_ENABLED=true to enable)")
+		log.Printf("[MEMORY] no embedding key resolved — memory unavailable (set the embedding API key in Settings)")
 	}
 
 	// onChange callback is wired AFTER proxyHandler and cacheAPI are created (below).
