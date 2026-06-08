@@ -580,6 +580,7 @@
         <button class="tab-btn active" data-tab="openai">Python · OpenAI</button>
         <button class="tab-btn" data-tab="anthropic">Python · Anthropic</button>
         <button class="tab-btn" data-tab="langchain">LangChain</button>
+        <button class="tab-btn" data-tab="openrouter">OpenRouter</button>
         <button class="tab-btn" data-tab="openclaw">OpenClaw</button>
         <button class="tab-btn" data-tab="shell">curl</button>
     </div>
@@ -644,6 +645,36 @@ llm = ChatOpenAI(
 )
 
 response = llm.invoke("Hello!")</pre>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-openrouter">
+            <div class="code-block">
+                <button class="copy-btn" data-target="code-openrouter">Copy</button>
+                <pre id="code-openrouter">from openai import OpenAI
+
+# Reach OpenRouter THROUGH the proxy: keep the OpenAI client, point it at the
+# proxy, and prefix the model with "openrouter/". The proxy forwards to
+# OpenRouter using its own server-side OPENROUTER_API_KEY.
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="unused-proxy-forwards-its-own-key",
+    default_headers={
+        "X-Agent-ID":   "my-agent",    # Agents view
+        "X-App-Name":   "my-project",  # groups agents by app
+        "X-Session-ID": "session-123", # groups into sessions
+    }
+)
+
+response = client.chat.completions.create(
+    model="openrouter/openai/gpt-4o-mini",   # openrouter/&lt;any OpenRouter model&gt;
+    messages=[{"role": "user", "content": "Hello!"}]
+)</pre>
+            </div>
+            <div class="setup-note">
+                <strong>OpenRouter via the proxy</strong> — prefix the model with <code>openrouter/</code>
+                (e.g. <code>openrouter/anthropic/claude-opus-4.8</code>). The proxy routes it to its seeded
+                OpenRouter provider and authenticates with the server-side <code>OPENROUTER_API_KEY</code>,
+                so callers don't need an OpenRouter key. This is how the Aratiri agents connect.
             </div>
         </div>
         <div class="tab-content" id="tab-openclaw">
