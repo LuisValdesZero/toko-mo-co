@@ -115,6 +115,10 @@ type Config struct {
 	// pushes them to this CRUD path. The same NeMoGuardrailsAPIKey is sent as
 	// X-Internal-Key (= the service's GUARDRAILS_INTERNAL_KEY).
 	NeMoGuardrailsConfigPath string `json:"nemo_guardrails_config_path"` // default /config/rules
+	// Comma-separated X-Agent-ID values that BYPASS the guardrails check entirely
+	// (e.g. the security agents whose authorized pentest prompts the PII/ToS gate
+	// would false-flag). Empty = no exemptions.
+	NeMoGuardrailsExemptAgents string `json:"nemo_guardrails_exempt_agents"`
 }
 
 // Default returns a Config with all defaults pre-filled.
@@ -327,6 +331,23 @@ func applyEnv(cfg *Config) {
 	setStr("CONFIG_NEMOGUARDRAILS_API_KEY", &cfg.NeMoGuardrailsAPIKey)
 	setInt("CONFIG_NEMOGUARDRAILS_TIMEOUT_SEC", &cfg.NeMoGuardrailsTimeoutSec)
 	setStr("CONFIG_NEMOGUARDRAILS_CONFIG_PATH", &cfg.NeMoGuardrailsConfigPath)
+	setStr("CONFIG_NEMOGUARDRAILS_EXEMPT_AGENTS", &cfg.NeMoGuardrailsExemptAgents)
+}
+
+// GuardrailsExempt reports whether the given X-Agent-ID bypasses the guardrails
+// check (membership in the comma-separated NeMoGuardrailsExemptAgents list,
+// case-insensitive). Parsed per call so a runtime settings change takes effect.
+func (c *Config) GuardrailsExempt(agentID string) bool {
+	if agentID == "" || c.NeMoGuardrailsExemptAgents == "" {
+		return false
+	}
+	want := strings.ToLower(strings.TrimSpace(agentID))
+	for _, a := range strings.Split(c.NeMoGuardrailsExemptAgents, ",") {
+		if strings.ToLower(strings.TrimSpace(a)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // validate returns an error if any config value is out of range.
