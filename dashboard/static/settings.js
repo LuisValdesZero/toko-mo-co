@@ -74,7 +74,27 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProviders();
     // Load custom provider models for dropdowns (from models.js)
     if (typeof loadCustomProviderModels === 'function') loadCustomProviderModels();
+
+    // Toggle bge-m3-only fields (base URL + sparse weight) when the embedding
+    // provider changes, and refresh the API-key help text accordingly.
+    const ep = document.getElementById('embeddingProvider');
+    if (ep) ep.addEventListener('change', updateEmbeddingProviderFields);
 });
+
+// Shows the Aratiri-bge-m3-specific settings (base URL + sparse weight) only
+// when that provider is selected, and updates the embedding key help text.
+function updateEmbeddingProviderFields() {
+    const provider = document.getElementById('embeddingProvider').value;
+    const isAratiri = provider === 'aratiri-bge-m3';
+    const baseItem = document.getElementById('embeddingBaseURLItem');
+    const sparseItem = document.getElementById('semanticCacheSparseWeightItem');
+    if (baseItem) baseItem.style.display = isAratiri ? '' : 'none';
+    if (sparseItem) sparseItem.style.display = isAratiri ? '' : 'none';
+    const keyInput = document.getElementById('embeddingAPIKey');
+    if (keyInput && !keyInput.placeholder.includes('•')) {
+        keyInput.placeholder = isAratiri ? 'platform API key (X-API-Key)' : 'sk-...';
+    }
+}
 
 // Load current settings from API
 async function loadSettings() {
@@ -118,6 +138,13 @@ async function loadSettings() {
         if (settings.embedding_model) {
             document.getElementById('embeddingModel').value = settings.embedding_model;
         }
+        if (settings.embedding_base_url) {
+            document.getElementById('embeddingBaseURL').value = settings.embedding_base_url;
+        }
+        if (typeof settings.semantic_cache_sparse_weight === 'number') {
+            document.getElementById('semanticCacheSparseWeight').value = settings.semantic_cache_sparse_weight;
+        }
+        updateEmbeddingProviderFields();
         // API key: show masked version from server (don't fill password field)
         const keyStatus = document.getElementById('embeddingKeyStatus');
         if (settings.embedding_api_key && settings.embedding_api_key.length > 0 && settings.embedding_api_key !== '') {
@@ -553,6 +580,8 @@ async function saveSettings() {
         embedding_provider: document.getElementById('embeddingProvider').value,
         embedding_model: document.getElementById('embeddingModel').value,
         embedding_api_key: document.getElementById('embeddingAPIKey').value || '',
+        embedding_base_url: document.getElementById('embeddingBaseURL').value || '',
+        semantic_cache_sparse_weight: parseFloat(document.getElementById('semanticCacheSparseWeight').value) || 0,
         // Memory Layer
         memory_enabled: document.getElementById('memoryEnabled').checked,
         memory_threshold: parseFloat(document.getElementById('memoryThreshold').value),
@@ -1303,6 +1332,28 @@ async function resetPricingDefaults() {
     } catch (err) {
         console.error('Failed to reset pricing defaults:', err);
         alert('Failed to reset pricing defaults');
+    }
+}
+
+// Pull live model prices from OpenRouter (server-side, using OPENROUTER_API_KEY)
+// and upsert them under the openrouter/<id> prefix.
+async function refreshOpenRouterPricing() {
+    const btn = document.getElementById('refreshOpenRouterBtn');
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+    try {
+        const response = await fetch('/api/pricing/refresh-openrouter', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'refresh failed');
+        await loadPricingData();
+        if (btn) {
+            btn.textContent = `Updated ${data.updated} models`;
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+        }
+    } catch (err) {
+        console.error('OpenRouter pricing refresh failed:', err);
+        alert('OpenRouter pricing refresh failed: ' + err.message);
+        if (btn) { btn.textContent = orig; btn.disabled = false; }
     }
 }
 

@@ -6,13 +6,20 @@
 //   - Postgres: vectors live in a native pgvector column with an HNSW index;
 //     search runs in SQL via the cosine-distance operator (<=>). No in-memory
 //     mirror is kept.
+//
+// Hybrid scoring: when an entry carries a sparse (lexical) vector — e.g. bge-m3's
+// sparse output — Store/Search variants combine dense cosine with sparse cosine
+// as `(1-w)*dense + w*sparse`. The dense-only Store/Search wrappers keep working
+// unchanged (sparse nil, weight 0) for providers like OpenAI.
 package vectorstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,10 +30,11 @@ import (
 
 // Entry is a stored vector with its associated cache hash.
 type Entry struct {
-	CacheHash string    // Links back to the response_cache entry
-	Vector    []float32 // Embedding vector
-	Provider  string    // For scoping searches
-	Model     string    // For scoping searches
+	CacheHash string            // Links back to the response_cache entry
+	Vector    []float32         // Dense embedding vector
+	Sparse    map[int32]float32 // Optional lexical vector (bge-m3 hybrid); nil for dense-only providers
+	Provider  string            // For scoping searches
+	Model     string            // For scoping searches
 	CreatedAt time.Time
 }
 
@@ -47,7 +55,7 @@ type VectorStore struct {
 }
 
 // New creates a vector store backed by the given database handle.
-// dims is the expected embedding dimensionality (e.g. 1536).
+// dims is the expected embedding dimensionality (e.g. 1536 for OpenAI, 1024 for bge-m3).
 func New(db store.Querier, dims, maxEntries int) (*VectorStore, error) {
 	vs := &VectorStore{
 		entries:    make(map[string]*Entry),
@@ -60,6 +68,7 @@ func New(db store.Querier, dims, maxEntries int) (*VectorStore, error) {
 	if err := vs.migrate(); err != nil {
 		return nil, err
 	}
+	vs.ensureDims() // recreate the table if the stored dimensionality changed (provider switch)
 
 	if !vs.pg {
 		vs.warmLoad() // SQLite mirrors vectors in RAM; Postgres queries pgvector directly
@@ -67,7 +76,32 @@ func New(db store.Querier, dims, maxEntries int) (*VectorStore, error) {
 	return vs, nil
 }
 
-// migrate creates the semantic_cache_vectors table if it doesn't exist.
+// ensureDims reconciles the Postgres pgvector column dimensionality with the
+// active embedder. CREATE TABLE IF NOT EXISTS won't change an existing column's
+// dimension, so when the embedding provider changes (e.g. OpenAI 1536 -> bge-m3
+// 1024) the stored vectors and column would mismatch. This is a cache, so the
+// table is simply dropped and recreated at the new dimension. SQLite stores
+// vectors as BLOBs (any length) and warmLoad already skips mismatched rows, so
+// only Postgres needs this.
+func (vs *VectorStore) ensureDims() {
+	if !vs.pg {
+		return
+	}
+	var got int
+	if err := vs.db.QueryRow(`SELECT vector_dims(vector) FROM semantic_cache_vectors LIMIT 1`).Scan(&got); err != nil {
+		return // empty table or unavailable -> nothing to reconcile
+	}
+	if got != vs.dims {
+		log.Printf("[VECTORSTORE] embedding dimension changed %d -> %d; recreating semantic_cache_vectors", got, vs.dims)
+		vs.db.Exec(`DROP TABLE IF EXISTS semantic_cache_vectors`) //nolint:errcheck
+		if err := vs.migrate(); err != nil {
+			log.Printf("[VECTORSTORE] recreate after dim change failed: %v", err)
+		}
+	}
+}
+
+// migrate creates the semantic_cache_vectors table if it doesn't exist and ensures
+// the optional `sparse` column is present (added idempotently for existing tables).
 func (vs *VectorStore) migrate() error {
 	var stmts []string
 	if vs.pg {
@@ -75,6 +109,7 @@ func (vs *VectorStore) migrate() error {
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS semantic_cache_vectors (
 				cache_hash TEXT PRIMARY KEY,
 				vector     vector(%d) NOT NULL,
+				sparse     TEXT,
 				provider   TEXT NOT NULL DEFAULT '',
 				model      TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL
@@ -88,6 +123,7 @@ func (vs *VectorStore) migrate() error {
 			`CREATE TABLE IF NOT EXISTS semantic_cache_vectors (
 				cache_hash TEXT PRIMARY KEY,
 				vector     BLOB NOT NULL,
+				sparse     TEXT,
 				provider   TEXT NOT NULL DEFAULT '',
 				model      TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL
@@ -100,13 +136,16 @@ func (vs *VectorStore) migrate() error {
 			return err
 		}
 	}
+	// Backfill the sparse column on tables created before hybrid support. Both
+	// dialects error if it already exists; that error is benign and ignored.
+	vs.db.Exec(`ALTER TABLE semantic_cache_vectors ADD COLUMN sparse TEXT`) //nolint:errcheck
 	return nil
 }
 
 // warmLoad loads all vectors from the database into memory (SQLite only).
 func (vs *VectorStore) warmLoad() {
 	rows, err := vs.db.Query(`
-		SELECT cache_hash, vector, provider, model, created_at
+		SELECT cache_hash, vector, sparse, provider, model, created_at
 		FROM semantic_cache_vectors
 		ORDER BY created_at DESC
 		LIMIT ?`, vs.maxEntries)
@@ -120,9 +159,10 @@ func (vs *VectorStore) warmLoad() {
 	for rows.Next() {
 		var hash, provider, model string
 		var vecBytes []byte
+		var sparseJSON sql.NullString
 		var createdAt int64
 
-		if err := rows.Scan(&hash, &vecBytes, &provider, &model, &createdAt); err != nil {
+		if err := rows.Scan(&hash, &vecBytes, &sparseJSON, &provider, &model, &createdAt); err != nil {
 			log.Printf("[VECTORSTORE] scan error: %v", err)
 			continue
 		}
@@ -135,6 +175,7 @@ func (vs *VectorStore) warmLoad() {
 		vs.entries[hash] = &Entry{
 			CacheHash: hash,
 			Vector:    vec,
+			Sparse:    jsonToSparse(sparseJSON.String),
 			Provider:  provider,
 			Model:     model,
 			CreatedAt: time.Unix(createdAt, 0),
@@ -147,10 +188,16 @@ func (vs *VectorStore) warmLoad() {
 	}
 }
 
-// Store adds or updates a vector embedding for a cache hash.
+// Store adds or updates a dense vector for a cache hash (dense-only providers).
 func (vs *VectorStore) Store(cacheHash string, vector []float32, provider, model string) {
+	vs.StoreHybrid(cacheHash, vector, nil, provider, model)
+}
+
+// StoreHybrid adds or updates a dense vector plus an optional sparse lexical
+// vector for a cache hash.
+func (vs *VectorStore) StoreHybrid(cacheHash string, vector []float32, sparse map[int32]float32, provider, model string) {
 	if vs.pg {
-		go vs.persistPG(cacheHash, vector, provider, model, time.Now())
+		go vs.persistPG(cacheHash, vector, sparse, provider, model, time.Now())
 		return
 	}
 
@@ -164,6 +211,7 @@ func (vs *VectorStore) Store(cacheHash string, vector []float32, provider, model
 	entry := &Entry{
 		CacheHash: cacheHash,
 		Vector:    vector,
+		Sparse:    sparse,
 		Provider:  provider,
 		Model:     model,
 		CreatedAt: time.Now(),
@@ -174,11 +222,26 @@ func (vs *VectorStore) Store(cacheHash string, vector []float32, provider, model
 	go vs.persistToDB(entry) // Async persist to SQLite
 }
 
-// Search finds the most similar vector to the query, scoped by provider and model.
-// Returns the best match above the threshold, or nil if no match found.
+// Search finds the most similar dense vector to the query (dense-only).
 func (vs *VectorStore) Search(queryVec []float32, provider, model string, threshold float64) *SearchResult {
+	return vs.SearchHybrid(queryVec, nil, provider, model, threshold, 0)
+}
+
+// SearchHybrid finds the best match scoping by provider+model, scoring with a
+// blend of dense cosine and sparse cosine: (1-w)*dense + w*sparse. When
+// sparseWeight is 0 (or the query/entry has no sparse vector) it degrades to a
+// pure dense search, identical to the old Search behaviour.
+func (vs *VectorStore) SearchHybrid(queryVec []float32, querySparse map[int32]float32, provider, model string, threshold, sparseWeight float64) *SearchResult {
+	if sparseWeight < 0 {
+		sparseWeight = 0
+	}
+	if sparseWeight > 1 {
+		sparseWeight = 1
+	}
+	useSparse := sparseWeight > 0 && len(querySparse) > 0
+
 	if vs.pg {
-		return vs.searchPG(queryVec, provider, model, threshold)
+		return vs.searchPG(queryVec, querySparse, provider, model, threshold, sparseWeight, useSparse)
 	}
 
 	vs.mu.RLock()
@@ -192,6 +255,9 @@ func (vs *VectorStore) Search(queryVec []float32, provider, model string, thresh
 			continue
 		}
 		sim := cosineSimilarity(queryVec, entry.Vector)
+		if useSparse && len(entry.Sparse) > 0 {
+			sim = (1-sparseWeight)*sim + sparseWeight*sparseCosine(querySparse, entry.Sparse)
+		}
 		if sim > bestSim {
 			bestSim = sim
 			bestHash = hash
@@ -205,26 +271,69 @@ func (vs *VectorStore) Search(queryVec []float32, provider, model string, thresh
 }
 
 // searchPG runs the nearest-neighbour search in Postgres via pgvector. The
-// cosine-distance operator (<=>) returns 1 - cosine_similarity, so similarity
-// is 1 - distance.
-func (vs *VectorStore) searchPG(queryVec []float32, provider, model string, threshold float64) *SearchResult {
+// cosine-distance operator (<=>) returns 1 - cosine_similarity. For hybrid
+// scoring we pull the top-K dense candidates and re-rank them in Go with the
+// sparse vector; for pure dense we keep the single-row fast path.
+func (vs *VectorStore) searchPG(queryVec []float32, querySparse map[int32]float32, provider, model string, threshold, sparseWeight float64, useSparse bool) *SearchResult {
 	q := pgvector.NewVector(queryVec)
-	var hash string
-	var sim float64
-	err := vs.db.QueryRow(`
-		SELECT cache_hash, 1 - (vector <=> ?) AS sim
-		FROM semantic_cache_vectors
-		WHERE provider = ? AND model = ?
-		ORDER BY vector <=> ?
-		LIMIT 1`, q, provider, model, q).Scan(&hash, &sim)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			log.Printf("[VECTORSTORE] pg search failed: %v", err)
+
+	if !useSparse {
+		var hash string
+		var sim float64
+		err := vs.db.QueryRow(`
+			SELECT cache_hash, 1 - (vector <=> ?) AS sim
+			FROM semantic_cache_vectors
+			WHERE provider = ? AND model = ?
+			ORDER BY vector <=> ?
+			LIMIT 1`, q, provider, model, q).Scan(&hash, &sim)
+		if err != nil {
+			if err != sql.ErrNoRows {
+				log.Printf("[VECTORSTORE] pg search failed: %v", err)
+			}
+			return nil
+		}
+		if sim >= threshold {
+			return &SearchResult{CacheHash: hash, Similarity: sim}
 		}
 		return nil
 	}
-	if sim >= threshold {
-		return &SearchResult{CacheHash: hash, Similarity: sim}
+
+	// Hybrid: fetch top-K dense neighbours, re-rank with sparse cosine.
+	const topK = 20
+	rows, err := vs.db.Query(`
+		SELECT cache_hash, 1 - (vector <=> ?) AS sim, sparse
+		FROM semantic_cache_vectors
+		WHERE provider = ? AND model = ?
+		ORDER BY vector <=> ?
+		LIMIT ?`, q, provider, model, q, topK)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			log.Printf("[VECTORSTORE] pg hybrid search failed: %v", err)
+		}
+		return nil
+	}
+	defer rows.Close()
+
+	var bestHash string
+	var bestSim float64
+	for rows.Next() {
+		var hash string
+		var denseSim float64
+		var sparseJSON sql.NullString
+		if err := rows.Scan(&hash, &denseSim, &sparseJSON); err != nil {
+			continue
+		}
+		score := denseSim
+		if es := jsonToSparse(sparseJSON.String); len(es) > 0 {
+			score = (1-sparseWeight)*denseSim + sparseWeight*sparseCosine(querySparse, es)
+		}
+		if score > bestSim {
+			bestSim = score
+			bestHash = hash
+		}
+	}
+	if bestSim >= threshold {
+		return &SearchResult{CacheHash: bestHash, Similarity: bestSim}
 	}
 	return nil
 }
@@ -283,33 +392,35 @@ func (vs *VectorStore) evictOldest() {
 	}
 }
 
-// persistToDB writes a vector entry to SQLite (BLOB-encoded).
+// persistToDB writes a vector entry to SQLite (BLOB-encoded dense + JSON sparse).
 func (vs *VectorStore) persistToDB(entry *Entry) {
 	vecBytes := float32ToBytes(entry.Vector)
 	_, err := vs.db.Exec(`
-		INSERT INTO semantic_cache_vectors (cache_hash, vector, provider, model, created_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO semantic_cache_vectors (cache_hash, vector, sparse, provider, model, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(cache_hash) DO UPDATE SET
 			vector = excluded.vector,
+			sparse = excluded.sparse,
 			provider = excluded.provider,
 			model = excluded.model`,
-		entry.CacheHash, vecBytes, entry.Provider, entry.Model, entry.CreatedAt.Unix(),
+		entry.CacheHash, vecBytes, sparseToJSON(entry.Sparse), entry.Provider, entry.Model, entry.CreatedAt.Unix(),
 	)
 	if err != nil {
 		log.Printf("[VECTORSTORE] persist failed: %v", err)
 	}
 }
 
-// persistPG writes a vector entry to Postgres (native pgvector column).
-func (vs *VectorStore) persistPG(cacheHash string, vector []float32, provider, model string, created time.Time) {
+// persistPG writes a vector entry to Postgres (native pgvector dense + JSON sparse).
+func (vs *VectorStore) persistPG(cacheHash string, vector []float32, sparse map[int32]float32, provider, model string, created time.Time) {
 	_, err := vs.db.Exec(`
-		INSERT INTO semantic_cache_vectors (cache_hash, vector, provider, model, created_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO semantic_cache_vectors (cache_hash, vector, sparse, provider, model, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(cache_hash) DO UPDATE SET
 			vector = excluded.vector,
+			sparse = excluded.sparse,
 			provider = excluded.provider,
 			model = excluded.model`,
-		cacheHash, pgvector.NewVector(vector), provider, model, created.Unix(),
+		cacheHash, pgvector.NewVector(vector), sparseToJSON(sparse), provider, model, created.Unix(),
 	)
 	if err != nil {
 		log.Printf("[VECTORSTORE] pg persist failed: %v", err)
@@ -318,7 +429,7 @@ func (vs *VectorStore) persistPG(cacheHash string, vector []float32, provider, m
 
 // ── Math utilities ─────────────────────────────────────────────────────────
 
-// cosineSimilarity computes the cosine similarity between two vectors.
+// cosineSimilarity computes the cosine similarity between two dense vectors.
 // Returns a value in [-1, 1] where 1 means identical direction.
 func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) || len(a) == 0 {
@@ -338,6 +449,76 @@ func cosineSimilarity(a, b []float32) float64 {
 		return 0
 	}
 	return dot / denom
+}
+
+// sparseCosine computes cosine similarity between two sparse vectors
+// (token-id -> weight). Returns a value in [0, 1] for non-negative weights.
+func sparseCosine(a, b map[int32]float32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	// Iterate the smaller map for the shared-key dot product.
+	small, large := a, b
+	if len(b) < len(a) {
+		small, large = b, a
+	}
+	var dot float64
+	for k, av := range small {
+		if bv, ok := large[k]; ok {
+			dot += float64(av) * float64(bv)
+		}
+	}
+	if dot == 0 {
+		return 0
+	}
+	var normA, normB float64
+	for _, v := range a {
+		normA += float64(v) * float64(v)
+	}
+	for _, v := range b {
+		normB += float64(v) * float64(v)
+	}
+	denom := math.Sqrt(normA) * math.Sqrt(normB)
+	if denom == 0 {
+		return 0
+	}
+	return dot / denom
+}
+
+// ── Sparse (de)serialization (stored as a JSON object of token-id -> weight) ──
+
+func sparseToJSON(s map[int32]float32) interface{} {
+	if len(s) == 0 {
+		return nil // store NULL for dense-only entries
+	}
+	m := make(map[string]float32, len(s))
+	for k, v := range s {
+		m[strconv.FormatInt(int64(k), 10)] = v
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return string(b)
+}
+
+func jsonToSparse(j string) map[int32]float32 {
+	if j == "" {
+		return nil
+	}
+	var m map[string]float32
+	if err := json.Unmarshal([]byte(j), &m); err != nil || len(m) == 0 {
+		return nil
+	}
+	out := make(map[int32]float32, len(m))
+	for k, v := range m {
+		id, err := strconv.ParseInt(k, 10, 32)
+		if err != nil {
+			continue
+		}
+		out[int32(id)] = v
+	}
+	return out
 }
 
 // ── Serialization helpers (SQLite BLOB) ─────────────────────────────────────

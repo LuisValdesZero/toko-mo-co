@@ -20,10 +20,11 @@ import (
 //   4. If found, returns the cache hash → caller looks it up in ResponseCache
 //   5. On cache miss, after upstream response, caller stores the vector
 type SemanticCache struct {
-	embedder   embedding.Embedder
-	store      *vectorstore.VectorStore
-	threshold  float64 // Cosine similarity threshold (default: 0.95)
-	enabled    bool
+	embedder     embedding.Embedder
+	store        *vectorstore.VectorStore
+	threshold    float64 // Cosine similarity threshold (default: 0.95)
+	sparseWeight float64 // Weight of the sparse score in hybrid mode (0 = dense only)
+	enabled      bool
 
 	// Atomic metrics
 	hits   atomic.Int64
@@ -31,16 +32,43 @@ type SemanticCache struct {
 }
 
 // NewSemanticCache creates a semantic cache with the given embedder and vector store.
-func NewSemanticCache(embedder embedding.Embedder, store *vectorstore.VectorStore, threshold float64, enabled bool) *SemanticCache {
+// sparseWeight blends a sparse (lexical) score into the similarity when the embedder
+// is a HybridEmbedder (e.g. bge-m3); pass 0 for pure dense matching.
+func NewSemanticCache(embedder embedding.Embedder, store *vectorstore.VectorStore, threshold, sparseWeight float64, enabled bool) *SemanticCache {
 	if threshold <= 0 || threshold > 1 {
 		threshold = 0.95 // safe default
 	}
-	return &SemanticCache{
-		embedder:  embedder,
-		store:     store,
-		threshold: threshold,
-		enabled:   enabled,
+	if sparseWeight < 0 || sparseWeight > 1 {
+		sparseWeight = 0
 	}
+	return &SemanticCache{
+		embedder:     embedder,
+		store:        store,
+		threshold:    threshold,
+		sparseWeight: sparseWeight,
+		enabled:      enabled,
+	}
+}
+
+// SetSparseWeight updates the hybrid sparse weight at runtime.
+func (sc *SemanticCache) SetSparseWeight(w float64) {
+	if w >= 0 && w <= 1 {
+		sc.sparseWeight = w
+	}
+}
+
+// embedKey returns the dense vector and (when the embedder supports it) the sparse
+// vector for a semantic key.
+func (sc *SemanticCache) embedKey(key string) ([]float32, map[int32]float32, error) {
+	if he, ok := sc.embedder.(embedding.HybridEmbedder); ok && sc.sparseWeight > 0 {
+		dense, sparse, err := he.EmbedHybrid(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		return dense, map[int32]float32(sparse), nil
+	}
+	dense, err := sc.embedder.Embed(key)
+	return dense, nil, err
 }
 
 // IsEnabled returns whether semantic caching is active.
@@ -73,14 +101,14 @@ func (sc *SemanticCache) Lookup(semanticKey, provider, model string) (string, fl
 		return "", 0, false
 	}
 
-	vec, err := sc.embedder.Embed(semanticKey)
+	vec, sparse, err := sc.embedKey(semanticKey)
 	if err != nil {
 		log.Printf("[SEMANTIC-CACHE] embed error: %v", err)
 		sc.misses.Add(1)
 		return "", 0, false
 	}
 
-	result := sc.store.Search(vec, provider, model, sc.threshold)
+	result := sc.store.SearchHybrid(vec, sparse, provider, model, sc.threshold, sc.sparseWeight)
 	if result == nil {
 		sc.misses.Add(1)
 		return "", 0, false
@@ -97,13 +125,13 @@ func (sc *SemanticCache) Store(semanticKey, cacheHash, provider, model string) {
 		return
 	}
 
-	vec, err := sc.embedder.Embed(semanticKey)
+	vec, sparse, err := sc.embedKey(semanticKey)
 	if err != nil {
 		log.Printf("[SEMANTIC-CACHE] embed error on store: %v", err)
 		return
 	}
 
-	sc.store.Store(cacheHash, vec, provider, model)
+	sc.store.StoreHybrid(cacheHash, vec, sparse, provider, model)
 }
 
 // Flush clears all vectors from the semantic cache.

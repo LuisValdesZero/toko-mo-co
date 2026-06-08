@@ -76,9 +76,14 @@ type Config struct {
 	SemanticCacheEnabled    bool    `json:"semantic_cache_enabled"`     // Enable embedding-based cache (default: false)
 	SemanticCacheThreshold  float64 `json:"semantic_cache_threshold"`   // Cosine similarity threshold 0–1 (default: 0.95)
 	SemanticCacheMaxVectors int     `json:"semantic_cache_max_vectors"` // Max stored vectors (default: 10000)
-	EmbeddingProvider       string  `json:"embedding_provider"`         // "openai" (default: openai)
+	EmbeddingProvider       string  `json:"embedding_provider"`         // "openai" | "aratiri-bge-m3" (default: openai)
 	EmbeddingModel          string  `json:"embedding_model"`            // Embedding model name (default: text-embedding-3-small)
-	EmbeddingAPIKey         string  `json:"embedding_api_key"`          // Embedding API key (falls back to OPENAI_API_KEY)
+	EmbeddingAPIKey         string  `json:"embedding_api_key"`          // Embedding API key (OpenAI: OPENAI_API_KEY; aratiri-bge-m3: PLATFORM_API_KEY, sent as X-API-Key)
+	EmbeddingBaseURL        string  `json:"embedding_base_url"`         // Base URL for the aratiri-bge-m3 provider (.../api/v1; /embed appended)
+	SemanticCacheSparseWeight float64 `json:"semantic_cache_sparse_weight"` // Hybrid blend: weight of the sparse score, 0–1 (bge-m3 only; default 0.3)
+
+	// Pricing
+	PricingOpenRouterAutoRefresh bool `json:"pricing_openrouter_auto_refresh"` // Refresh model prices from OpenRouter on boot + daily (default: true)
 
 	// Memory Layer (mem0-style agent memory)
 	MemoryEnabled        bool    `json:"memory_enabled"`            // Enable memory extraction and retrieval (default: false)
@@ -135,6 +140,9 @@ func Default() Config {
 		EmbeddingProvider:       "openai",
 		EmbeddingModel:          "text-embedding-3-small",
 		EmbeddingAPIKey:         "",    // Falls back to OPENAI_API_KEY env var
+		EmbeddingBaseURL:        "http://platform-api.service.consul:8000/api/v1", // aratiri-bge-m3 provider
+		SemanticCacheSparseWeight: 0.3,
+		PricingOpenRouterAutoRefresh: true,
 		MemoryEnabled:           false, // Off by default — requires embedding API key
 		MemoryMaxEntries:        10000,
 		MemoryThreshold:         0.7, // Lower than semantic cache — memories are loosely related
@@ -267,6 +275,11 @@ func applyEnv(cfg *Config) {
 	setStr("CONFIG_EMBEDDING_PROVIDER", &cfg.EmbeddingProvider)
 	setStr("CONFIG_EMBEDDING_MODEL", &cfg.EmbeddingModel)
 	setStr("CONFIG_EMBEDDING_API_KEY", &cfg.EmbeddingAPIKey)
+	setStr("CONFIG_EMBEDDING_BASE_URL", &cfg.EmbeddingBaseURL)
+	setFloat("CONFIG_SEMANTIC_CACHE_SPARSE_WEIGHT", &cfg.SemanticCacheSparseWeight)
+
+	// Pricing
+	setBool("CONFIG_PRICING_OPENROUTER_AUTO", &cfg.PricingOpenRouterAutoRefresh)
 
 	// Memory Layer
 	setBool("CONFIG_MEMORY_ENABLED", &cfg.MemoryEnabled)
@@ -494,6 +507,8 @@ type SettingsResponse struct {
 	EmbeddingProvider       string  `json:"embedding_provider"`
 	EmbeddingModel          string  `json:"embedding_model"`
 	EmbeddingAPIKey         string  `json:"embedding_api_key"`
+	EmbeddingBaseURL        string  `json:"embedding_base_url"`
+	SemanticCacheSparseWeight float64 `json:"semantic_cache_sparse_weight"`
 	MemoryEnabled           bool    `json:"memory_enabled"`
 	MemoryMaxEntries        int     `json:"memory_max_entries"`
 	MemoryThreshold         float64 `json:"memory_threshold"`
@@ -565,6 +580,8 @@ func (s *SettingsAPI) HandleGet(w http.ResponseWriter, r *http.Request) {
 		EmbeddingProvider:       s.cfg.EmbeddingProvider,
 		EmbeddingModel:          s.cfg.EmbeddingModel,
 		EmbeddingAPIKey:         maskAPIKey(s.cfg.EmbeddingAPIKey),
+		EmbeddingBaseURL:        s.cfg.EmbeddingBaseURL,
+		SemanticCacheSparseWeight: s.cfg.SemanticCacheSparseWeight,
 		MemoryEnabled:           s.cfg.MemoryEnabled,
 		MemoryMaxEntries:        s.cfg.MemoryMaxEntries,
 		MemoryThreshold:         s.cfg.MemoryThreshold,
@@ -636,6 +653,10 @@ func (s *SettingsAPI) HandlePut(w http.ResponseWriter, r *http.Request) {
 	if incoming.EmbeddingAPIKey != "" && !strings.Contains(incoming.EmbeddingAPIKey, "...") {
 		s.cfg.EmbeddingAPIKey = incoming.EmbeddingAPIKey
 	}
+	if incoming.EmbeddingBaseURL != "" {
+		s.cfg.EmbeddingBaseURL = incoming.EmbeddingBaseURL
+	}
+	s.cfg.SemanticCacheSparseWeight = incoming.SemanticCacheSparseWeight
 	s.cfg.MemoryEnabled = incoming.MemoryEnabled
 	s.cfg.MemoryMaxEntries = incoming.MemoryMaxEntries
 	s.cfg.MemoryThreshold = incoming.MemoryThreshold
@@ -736,6 +757,10 @@ func (s *SettingsAPI) LoadFromDB() bool {
 	if saved.EmbeddingAPIKey != "" {
 		s.cfg.EmbeddingAPIKey = saved.EmbeddingAPIKey
 	}
+	if saved.EmbeddingBaseURL != "" {
+		s.cfg.EmbeddingBaseURL = saved.EmbeddingBaseURL
+	}
+	s.cfg.SemanticCacheSparseWeight = saved.SemanticCacheSparseWeight
 	s.cfg.MemoryEnabled = saved.MemoryEnabled
 	s.cfg.MemoryMaxEntries = saved.MemoryMaxEntries
 	s.cfg.MemoryThreshold = saved.MemoryThreshold
