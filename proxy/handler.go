@@ -276,15 +276,27 @@ func (h *Handler) executeUpstreamRequest(
 	logPrefix := fmt.Sprintf("%s/%s", provider, model)
 	_, retryErr, retryResult := reliability.RetryWithBackoff(h.currentRetryConfig(), operation, logPrefix)
 
-	// If the retry loop succeeded, return the captured response directly
+	is2xx := func(s int) bool { return s >= 200 && s < 300 }
+
+	// If the retry loop produced a response, return it directly — UNLESS a provider
+	// failover chain is set and the response is non-2xx (e.g. a 4xx bad-request or a
+	// non-retryable 5xx): in that case the chain should try the next provider too.
+	// We keep the last failed response (lastFailed) so that if the whole chain also
+	// fails, the client still gets a real status instead of a nil response.
+	var lastFailed *http.Response
+	var lastFailedStatus int
 	if retryErr == nil && lastResp != nil {
-		return lastResp, lastResp.StatusCode, nil, retryResult, "", "", 0
+		if len(providerChain) == 0 || is2xx(lastResp.StatusCode) {
+			return lastResp, lastResp.StatusCode, nil, retryResult, "", "", 0
+		}
+		lastFailed, lastFailedStatus = lastResp, lastResp.StatusCode
+		log.Printf("[FAILOVER] primary %s/%s returned %d; trying chain", provider, model, lastResp.StatusCode)
 	}
 
 	// ── Provider failover chain (from a Provider-Failover redirect rule) ─────
-	// Try each configured provider in order, using its default_model; first
-	// non-retryable 2xx wins. Runs whenever the chain is set (explicit operator
-	// rule), independent of the global FallbackEnabled toggle.
+	// Try each configured provider in order, using its default_model; the first
+	// 2xx wins. ANY non-2xx (including 4xx) cascades to the next provider. Runs
+	// whenever the chain is set, independent of the global FallbackEnabled toggle.
 	for _, at := range providerChain {
 		var rd map[string]interface{}
 		_ = json.Unmarshal(bodyBytes, &rd)
@@ -298,13 +310,30 @@ func (h *Handler) executeUpstreamRequest(
 		}
 		log.Printf("[FAILOVER] %s/%s failed; trying %s/%s", provider, model, at.name, at.model)
 		resp, err := doRequest(at.url, chainBody, hdrs)
-		if err == nil && !reliability.IsRetryableError(resp.StatusCode, nil) {
+		if err == nil && is2xx(resp.StatusCode) {
 			log.Printf("[FAILOVER] success via %s/%s (status %d)", at.name, at.model, resp.StatusCode)
+			if lastFailed != nil {
+				lastFailed.Body.Close()
+			}
 			return resp, resp.StatusCode, nil, retryResult, at.name, at.model, 0
 		}
-		if resp != nil {
+		if err == nil {
+			// Non-2xx — remember it (newest failure) so we can return a real status
+			// if every provider in the chain fails.
+			if lastFailed != nil {
+				lastFailed.Body.Close()
+			}
+			lastFailed, lastFailedStatus = resp, resp.StatusCode
+		} else if resp != nil {
 			resp.Body.Close()
 		}
+	}
+
+	// Chain exhausted without a 2xx: return the last failed response (the client
+	// gets a real error status rather than a nil response). Only happens when a
+	// chain was attempted; otherwise lastFailed is nil and we fall through.
+	if lastFailed != nil {
+		return lastFailed, lastFailedStatus, nil, retryResult, "", "", 0
 	}
 
 	// ── Fallback (only when all retries are exhausted) ──────────────────────
