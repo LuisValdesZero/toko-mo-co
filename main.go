@@ -435,10 +435,11 @@ func main() {
 
 	// Wire settings onChange callback now that proxyHandler and cacheAPI exist.
 	{
-		var lastEmbeddingKey string
-		if cfg.EmbeddingAPIKey != "" {
-			lastEmbeddingKey = cfg.EmbeddingAPIKey
-		}
+		// Track the EFFECTIVE embedding key (the user-entered key OR the provider env
+		// fallback — e.g. the Aratiri bge-m3 SEMANTIC_CACHE_ARATIRI_API_KEY / PLATFORM_API_KEY),
+		// so a live enable/rotate is detected even when the dashboard key field is blank
+		// (the key is supplied via env and shows "Configured").
+		lastEmbeddingKey := cfg.ResolveEmbeddingAPIKey()
 		settingsAPI.SetOnChange(func(c *config.Config) {
 			// Sync memory store parameters
 			if memoryStore != nil {
@@ -454,9 +455,13 @@ func main() {
 				responseCache.SetEnabled(c.CacheEnabled)
 			}
 
-			// Hot-reload semantic cache if embedding settings changed
-			embeddingChanged := c.EmbeddingAPIKey != "" && c.EmbeddingAPIKey != lastEmbeddingKey
-			if embeddingChanged || (c.SemanticCacheEnabled && semanticCache == nil && c.EmbeddingAPIKey != "") {
+			// Hot-reload semantic cache if embedding settings changed. Gate on the
+			// EFFECTIVE key (ResolveEmbeddingAPIKey), not the raw user-entered field —
+			// the Aratiri provider's key arrives via env, so c.EmbeddingAPIKey is empty
+			// and the old c.EmbeddingAPIKey != "" guard never let the cache build on enable.
+			resolvedKey := c.ResolveEmbeddingAPIKey()
+			embeddingChanged := resolvedKey != "" && resolvedKey != lastEmbeddingKey
+			if embeddingChanged || (c.SemanticCacheEnabled && semanticCache == nil && resolvedKey != "") {
 				emb, embErr := newEmbedderFromConfig(c)
 				if embErr != nil {
 					log.Printf("[SEMANTIC-CACHE] ⚠ embedding init failed on settings change: %v", embErr)
@@ -469,7 +474,7 @@ func main() {
 						semanticCache = newSC
 						proxyHandler.SetSemanticCache(newSC)
 						cacheAPI.SetSemanticCache(newSC)
-						lastEmbeddingKey = c.EmbeddingAPIKey
+						lastEmbeddingKey = resolvedKey
 						log.Printf("[SEMANTIC-CACHE] ✓ hot-reloaded: provider=%s dims=%d threshold=%.2f sparseWeight=%.2f",
 							c.EmbeddingProvider, emb.Dimensions(), c.SemanticCacheThreshold, c.SemanticCacheSparseWeight)
 					}
