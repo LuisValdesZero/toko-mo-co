@@ -20,6 +20,7 @@ import (
 	"tokomoco/detector"
 	"tokomoco/injector"
 	"tokomoco/memory"
+	"tokomoco/metrics"
 	"tokomoco/nemoguard"
 	"tokomoco/providers"
 	"tokomoco/redactor"
@@ -876,6 +877,12 @@ func (h *Handler) persistAndBroadcast(
 	jailbreakScore float64,
 	jailbreakCategory string,
 ) {
+	// Prometheus instrumentation — one call per request (incl. cache hits). Fallback is
+	// detected the same way the event below does (originalProvider set ⇒ rerouted).
+	metrics.RecordRequest(provider, model, agentID, appName, inputTokens, outputTokens, cost,
+		latencyMs, statusCode, cacheHit, originalProvider != "", loopResult.LoopDetected,
+		piiRedactedCount, jailbreakDetected)
+
 	eventID := uuid.New().String()
 
 	event := map[string]interface{}{
