@@ -23,6 +23,30 @@ type HybridEmbedder interface {
 	EmbedHybrid(text string) (dense []float32, sparse SparseVector, err error)
 }
 
+// RerankItem is one candidate document for reranking.
+type RerankItem struct {
+	ID   string
+	Text string
+}
+
+// RerankResult is one scored candidate returned by a reranker, ordered best-first.
+type RerankResult struct {
+	ID    string
+	Score float64
+	Index int // original index in the input slice
+}
+
+// ErrRerankerWarming signals the reranker GPU pod is cold-starting (HTTP 425).
+// Callers treat reranking as best-effort and fall back to their prior ordering.
+var ErrRerankerWarming = fmt.Errorf("reranker warming (cold start)")
+
+// Reranker reorders candidate documents by relevance to a query using a
+// cross-encoder (bge-reranker-v2-m3). Implemented by AratiriEmbedder via the
+// platform-api /rerank endpoint. Optional: a dense-only embedder won't implement it.
+type Reranker interface {
+	Rerank(query string, items []RerankItem, topN int) ([]RerankResult, error)
+}
+
 // ── Aratiri bge-m3 Embedder ─────────────────────────────────────────────────
 //
 // Calls the Aratiri platform-api embedding endpoint (BAAI/bge-m3), which returns
@@ -109,6 +133,86 @@ func (e *AratiriEmbedder) EmbedHybrid(text string) ([]float32, SparseVector, err
 
 // Dimensions returns the dense vector dimensionality (1024 for bge-m3).
 func (e *AratiriEmbedder) Dimensions() int { return e.dims }
+
+// ── Reranking (bge-reranker-v2-m3 cross-encoder) ─────────────────────────────
+//
+// Endpoint contract (platform-api routers/public_v1.py):
+//   POST {baseURL}/rerank
+//   body: {"query": "...", "candidates": [{"id":"..","text":".."}], "top_n": N?}
+//   resp: {"ranked": [{"id":"..","score":0.9,"index":0}, ...]}  (best-first)
+//   425  -> reranker GPU pod warming; caller falls back to its existing order.
+
+type aratiriRerankCandidate struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+type aratiriRerankRequest struct {
+	Query      string                   `json:"query"`
+	Candidates []aratiriRerankCandidate `json:"candidates"`
+	TopN       *int                     `json:"top_n,omitempty"`
+}
+
+type aratiriRankedItem struct {
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
+	Index int     `json:"index"`
+}
+
+type aratiriRerankResponse struct {
+	Ranked []aratiriRankedItem `json:"ranked"`
+}
+
+// Rerank reorders items by relevance to query via the bge-reranker-v2-m3 endpoint.
+// Returns ErrRerankerWarming on a 425 (cold GPU pod) so callers can fall back.
+func (e *AratiriEmbedder) Rerank(query string, items []RerankItem, topN int) ([]RerankResult, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	cands := make([]aratiriRerankCandidate, len(items))
+	for i, it := range items {
+		cands[i] = aratiriRerankCandidate{ID: it.ID, Text: it.Text}
+	}
+	reqBody := aratiriRerankRequest{Query: query, Candidates: cands}
+	if topN > 0 {
+		reqBody.TopN = &topN
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal rerank request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", e.baseURL+"/rerank", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create rerank request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", e.apiKey)
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rerank API call: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusTooEarly {
+		return nil, ErrRerankerWarming
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("rerank API returned %d: %s", resp.StatusCode, truncateStr(string(respBody), 200))
+	}
+
+	var result aratiriRerankResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal rerank response: %w", err)
+	}
+	out := make([]RerankResult, 0, len(result.Ranked))
+	for _, r := range result.Ranked {
+		out = append(out, RerankResult{ID: r.ID, Score: r.Score, Index: r.Index})
+	}
+	return out, nil
+}
 
 func (e *AratiriEmbedder) embed(text string, outputs []string) ([]float32, SparseVector, error) {
 	reqBody := aratiriEmbedRequest{Texts: []string{text}, Outputs: outputs}
