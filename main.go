@@ -356,13 +356,15 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok"}`)
 	}).Methods("GET")
 
-	// Prometheus metrics — public (the service is Consul-only; CONFIG_AUTH_ENABLED=false).
-	// Response-cache gauges are read at scrape time via the registered collector.
+	// Prometheus metrics. Wrapped in authWrap so it honors CONFIG_AUTH_ENABLED: open
+	// when auth is off (the Consul-only deploy), API-key protected when auth is on (the
+	// scraper then sends `Authorization: Bearer <key>`). Response-cache gauges are read
+	// at scrape time via the registered collector.
 	metrics.RegisterCacheCollector(func() (int, int, int64, int64, int64, float64, float64) {
 		s := responseCache.Stats()
 		return s.Entries, s.MaxEntries, s.Hits, s.Misses, s.TokensSaved, s.HitRate, s.CostSaved
 	})
-	r.Handle("/metrics", metrics.Handler()).Methods("GET")
+	r.Handle("/metrics", authWrap(metrics.Handler().ServeHTTP)).Methods("GET")
 
 	// Dashboard — public (served from browser, auth is for API calls)
 	r.HandleFunc("/", dashboard.ServeIndex).Methods("GET")
