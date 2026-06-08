@@ -15,7 +15,6 @@
 package memory
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -210,18 +209,24 @@ func (s *Store) migrate() error {
 		}
 	}
 
-	// Add columns for the enhanced memory layer (idempotent). `sparse` holds the
-	// bge-m3 lexical vector as a JSON object {token_id: weight}; NULL for dense-only
-	// providers (backfilled on tables created before hybrid support).
+	// Add columns for the enhanced memory layer (idempotent).
 	addCol := dl.AddColumn()
 	for _, col := range []struct{ name, def string }{
 		{"last_accessed", "INTEGER NOT NULL DEFAULT 0"},
 		{"access_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"updated_at", "INTEGER NOT NULL DEFAULT 0"},
-		{"sparse", "TEXT"},
 	} {
 		s.db.Exec(`ALTER TABLE memory_entries ` + addCol + ` ` + col.name + ` ` + col.def) //nolint:errcheck
 	}
+
+	// `sparse` holds the bge-m3 lexical vector as a NATIVE pgvector sparsevec on Postgres
+	// (JSON-in-TEXT on SQLite, which has no vector types). A prior build added it as TEXT;
+	// drop + re-add to convert in place — sparse vectors are regenerable from the source
+	// text, so no durable data is lost.
+	if s.pg {
+		s.db.Exec(`ALTER TABLE memory_entries DROP COLUMN IF EXISTS sparse`) //nolint:errcheck
+	}
+	s.db.Exec(`ALTER TABLE memory_entries ` + addCol + ` sparse ` + embedding.SparseColumnType(s.pg)) //nolint:errcheck
 
 	// Widen the unix-second timestamp columns to 64-bit on Postgres. The original
 	// schema used INTEGER (int4) which overflows on the zero-time sentinel
@@ -245,7 +250,7 @@ func (s *Store) warmLoad() {
 	rows, err := s.db.Query(`
 		SELECT id, agent_id, session_id, fact, vector, provider, model, created_at,
 		       COALESCE(last_accessed, 0), COALESCE(access_count, 0), COALESCE(updated_at, 0),
-		       COALESCE(sparse, '')
+		       COALESCE(`+embedding.SparseSelectExpr(s.pg)+`, '')
 		FROM memory_entries
 		ORDER BY created_at DESC
 		LIMIT ?`, s.maxEntries)
@@ -279,7 +284,7 @@ func (s *Store) warmLoad() {
 		} else {
 			e.Vector = bytesToFloat32(vecBytes)
 		}
-		e.Sparse = jsonToSparse(sparseJSON)
+		e.Sparse = embedding.DecodeSparse(sparseJSON, s.pg)
 		if len(e.Vector) != s.dims {
 			continue // dimension mismatch, skip stale entry
 		}
@@ -688,7 +693,7 @@ func (s *Store) updateExistingEntry(existing *Entry, newFact string, newVector [
 
 	// Persist to DB
 	_, err := s.db.Exec(`UPDATE memory_entries SET fact = ?, vector = ?, sparse = ?, updated_at = ? WHERE id = ?`,
-		newFact, s.encVec(newVector), sparseToJSON(newSparse), now.Unix(), existing.ID)
+		newFact, s.encVec(newVector), embedding.EncodeSparse(newSparse, s.pg), now.Unix(), existing.ID)
 	if err != nil {
 		return err
 	}
@@ -930,47 +935,14 @@ func (s *Store) persistToDB(entry *Entry) (int64, error) {
 	return s.db.InsertReturningID(`
 		INSERT INTO memory_entries (agent_id, session_id, fact, vector, sparse, provider, model, created_at, last_accessed, access_count, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		entry.AgentID, entry.SessionID, entry.Fact, s.encVec(entry.Vector), sparseToJSON(entry.Sparse), entry.Provider, entry.Model,
+		entry.AgentID, entry.SessionID, entry.Fact, s.encVec(entry.Vector), embedding.EncodeSparse(entry.Sparse, s.pg), entry.Provider, entry.Model,
 		entry.CreatedAt.Unix(), entry.LastAccessed.Unix(), entry.AccessCount, entry.UpdatedAt.Unix(),
 	)
 }
 
-// ── Sparse (de)serialization + cosine (bge-m3 lexical vector) ────────────────
-// Stored as a JSON object of token-id -> weight, NULL for dense-only entries.
-
-func sparseToJSON(sp embedding.SparseVector) any {
-	if len(sp) == 0 {
-		return nil
-	}
-	m := make(map[string]float32, len(sp))
-	for k, v := range sp {
-		m[strconv.FormatInt(int64(k), 10)] = v
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return nil
-	}
-	return string(b)
-}
-
-func jsonToSparse(j string) embedding.SparseVector {
-	if j == "" {
-		return nil
-	}
-	var m map[string]float32
-	if err := json.Unmarshal([]byte(j), &m); err != nil || len(m) == 0 {
-		return nil
-	}
-	out := make(embedding.SparseVector, len(m))
-	for k, v := range m {
-		id, err := strconv.ParseInt(k, 10, 32)
-		if err != nil {
-			continue
-		}
-		out[int32(id)] = v
-	}
-	return out
-}
+// ── Sparse cosine (bge-m3 lexical vector) ────────────────────────────────────
+// (de)serialization lives in package embedding: EncodeSparse / DecodeSparse, which
+// store a native pgvector sparsevec on Postgres and JSON on SQLite.
 
 // sparseCosine computes the cosine similarity between two sparse vectors (token-id ->
 // weight). Iterates the smaller map for the dot product.
