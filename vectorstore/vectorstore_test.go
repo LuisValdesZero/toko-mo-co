@@ -64,6 +64,32 @@ func TestStore_And_Search(t *testing.T) {
 	}
 }
 
+func TestSearchHybrid_SparseRerank(t *testing.T) {
+	db := testDB(t)
+	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)
+
+	// Two entries with identical dense vectors but different sparse vectors.
+	dense := []float32{0.5, 0.5, 0.5, 0.5}
+	vs.StoreHybrid("h-a", dense, map[int32]float32{1: 1.0, 2: 0.5}, "p", "m")
+	vs.StoreHybrid("h-b", dense, map[int32]float32{9: 1.0}, "p", "m")
+
+	// Dense matches both equally; the sparse query matches only h-a, so with a
+	// non-zero sparse weight h-a must win.
+	q := map[int32]float32{1: 1.0, 2: 0.5}
+	res := vs.SearchHybrid(dense, q, "p", "m", 0.6, 0.5)
+	if res == nil {
+		t.Fatal("expected a hybrid match")
+	}
+	if res.CacheHash != "h-a" {
+		t.Errorf("hybrid should pick the sparse-matching entry h-a, got %s", res.CacheHash)
+	}
+
+	// sparseWeight 0 degrades to a pure dense search (identical vectors still match).
+	if vs.SearchHybrid(dense, q, "p", "m", 0.9, 0) == nil {
+		t.Error("dense-only search should still match identical vectors")
+	}
+}
+
 func TestSearch_BelowThreshold(t *testing.T) {
 	db := testDB(t)
 	vs, _ := New(store.NewQuerier(db, store.SQLite), 4, 100)

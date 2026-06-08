@@ -32,6 +32,24 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// newEmbedderFromConfig builds the embedding provider selected in config.
+// "aratiri-bge-m3" → the cluster bge-m3 service (dense+sparse hybrid); anything
+// else → OpenAI. Used by the semantic cache + memory layer (init and hot-reload).
+func newEmbedderFromConfig(c *config.Config) (embedding.Embedder, error) {
+	switch c.EmbeddingProvider {
+	case "aratiri-bge-m3", "aratiri", "bge-m3":
+		return embedding.NewAratiriEmbedder(
+			embedding.WithAratiriBaseURL(c.EmbeddingBaseURL),
+			embedding.WithAratiriAPIKey(c.EmbeddingAPIKey),
+		)
+	default: // "openai" or unset
+		return embedding.NewOpenAIEmbedder(
+			embedding.WithModel(c.EmbeddingModel),
+			embedding.WithAPIKey(c.EmbeddingAPIKey),
+		)
+	}
+}
+
 func main() {
 	// ── Configuration ───────────────────────────────────────────────────────
 	// Optional config file path via CONFIG_FILE env var; defaults to config.json
@@ -168,6 +186,29 @@ func main() {
 	}
 	pricingAPI := tracker.NewPricingAPIHandler(pricingStore, db)
 
+	// Auto-refresh OpenRouter prices on boot + once a day (if OPENROUTER_API_KEY
+	// is set). Manual refresh is also available via POST /api/pricing/refresh-openrouter.
+	if cfg.PricingOpenRouterAutoRefresh {
+		go func() {
+			refresh := func() {
+				if os.Getenv("OPENROUTER_API_KEY") == "" {
+					return // no key — nothing to do; manual button still works once set
+				}
+				if n, err := tracker.RefreshFromOpenRouter(db, pricingStore); err != nil {
+					log.Printf("[PRICING] openrouter auto-refresh failed: %v", err)
+				} else {
+					log.Printf("[PRICING] openrouter auto-refresh updated %d models", n)
+				}
+			}
+			refresh()
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				refresh()
+			}
+		}()
+	}
+
 	// ── Response Cache ──────────────────────────────────────────────────────
 	responseCache := cache.NewResponseCache(
 		db,
@@ -181,10 +222,7 @@ func main() {
 	// ── Semantic Cache ─────────────────────────────────────────────────────
 	var semanticCache *cache.SemanticCache
 	if cfg.SemanticCacheEnabled {
-		emb, embErr := embedding.NewOpenAIEmbedder(
-			embedding.WithModel(cfg.EmbeddingModel),
-			embedding.WithAPIKey(cfg.EmbeddingAPIKey),
-		)
+		emb, embErr := newEmbedderFromConfig(&cfg)
 		if embErr != nil {
 			log.Printf("[SEMANTIC-CACHE] ⚠ embedding init failed: %v — semantic cache disabled", embErr)
 		} else {
@@ -192,9 +230,9 @@ func main() {
 			if vsErr != nil {
 				log.Printf("[SEMANTIC-CACHE] ⚠ vector store init failed: %v — semantic cache disabled", vsErr)
 			} else {
-				semanticCache = cache.NewSemanticCache(emb, vs, cfg.SemanticCacheThreshold, true)
-				log.Printf("[SEMANTIC-CACHE] enabled model=%s dims=%d threshold=%.2f maxVectors=%d",
-					cfg.EmbeddingModel, emb.Dimensions(), cfg.SemanticCacheThreshold, cfg.SemanticCacheMaxVectors)
+				semanticCache = cache.NewSemanticCache(emb, vs, cfg.SemanticCacheThreshold, cfg.SemanticCacheSparseWeight, true)
+				log.Printf("[SEMANTIC-CACHE] enabled provider=%s dims=%d threshold=%.2f sparseWeight=%.2f maxVectors=%d",
+					cfg.EmbeddingProvider, emb.Dimensions(), cfg.SemanticCacheThreshold, cfg.SemanticCacheSparseWeight, cfg.SemanticCacheMaxVectors)
 			}
 		}
 	} else {
@@ -204,31 +242,14 @@ func main() {
 	// ── Memory Layer ──────────────────────────────────────────────────────
 	var memoryStore *memory.Store
 	if cfg.MemoryEnabled {
-		// Memory layer reuses the same embedding infrastructure as semantic cache.
-		// If semantic cache already created an embedder, reuse it; otherwise create one.
+		// Memory layer reuses the same embedding provider as the semantic cache
+		// (built from the same config; selected by cfg.EmbeddingProvider).
 		var memEmb embedding.Embedder
-		if semanticCache != nil {
-			// Embedder already exists from semantic cache — but we can't access it directly.
-			// Create a new one with the same config.
-			memEmb2, memEmbErr := embedding.NewOpenAIEmbedder(
-				embedding.WithModel(cfg.EmbeddingModel),
-				embedding.WithAPIKey(cfg.EmbeddingAPIKey),
-			)
-			if memEmbErr != nil {
-				log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory disabled", memEmbErr)
-			} else {
-				memEmb = memEmb2
-			}
+		memEmb2, memEmbErr := newEmbedderFromConfig(&cfg)
+		if memEmbErr != nil {
+			log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory disabled", memEmbErr)
 		} else {
-			memEmb2, memEmbErr := embedding.NewOpenAIEmbedder(
-				embedding.WithModel(cfg.EmbeddingModel),
-				embedding.WithAPIKey(cfg.EmbeddingAPIKey),
-			)
-			if memEmbErr != nil {
-				log.Printf("[MEMORY] ⚠ embedding init failed: %v — memory disabled", memEmbErr)
-			} else {
-				memEmb = memEmb2
-			}
+			memEmb = memEmb2
 		}
 
 		if memEmb != nil {
@@ -402,10 +423,7 @@ func main() {
 			// Hot-reload semantic cache if embedding settings changed
 			embeddingChanged := c.EmbeddingAPIKey != "" && c.EmbeddingAPIKey != lastEmbeddingKey
 			if embeddingChanged || (c.SemanticCacheEnabled && semanticCache == nil && c.EmbeddingAPIKey != "") {
-				emb, embErr := embedding.NewOpenAIEmbedder(
-					embedding.WithModel(c.EmbeddingModel),
-					embedding.WithAPIKey(c.EmbeddingAPIKey),
-				)
+				emb, embErr := newEmbedderFromConfig(c)
 				if embErr != nil {
 					log.Printf("[SEMANTIC-CACHE] ⚠ embedding init failed on settings change: %v", embErr)
 				} else {
@@ -413,13 +431,13 @@ func main() {
 					if vsErr != nil {
 						log.Printf("[SEMANTIC-CACHE] ⚠ vector store init failed on settings change: %v", vsErr)
 					} else {
-						newSC := cache.NewSemanticCache(emb, vs, c.SemanticCacheThreshold, c.SemanticCacheEnabled)
+						newSC := cache.NewSemanticCache(emb, vs, c.SemanticCacheThreshold, c.SemanticCacheSparseWeight, c.SemanticCacheEnabled)
 						semanticCache = newSC
 						proxyHandler.SetSemanticCache(newSC)
 						cacheAPI.SetSemanticCache(newSC)
 						lastEmbeddingKey = c.EmbeddingAPIKey
-						log.Printf("[SEMANTIC-CACHE] ✓ hot-reloaded: model=%s dims=%d threshold=%.2f",
-							c.EmbeddingModel, emb.Dimensions(), c.SemanticCacheThreshold)
+						log.Printf("[SEMANTIC-CACHE] ✓ hot-reloaded: provider=%s dims=%d threshold=%.2f sparseWeight=%.2f",
+							c.EmbeddingProvider, emb.Dimensions(), c.SemanticCacheThreshold, c.SemanticCacheSparseWeight)
 					}
 				}
 			} else if semanticCache != nil {

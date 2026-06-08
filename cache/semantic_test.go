@@ -38,7 +38,7 @@ func testSemanticCache(t *testing.T) *SemanticCache {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewSemanticCache(emb, vs, 0.95, true)
+	return NewSemanticCache(emb, vs, 0.95, 0, true)
 }
 
 func TestSemanticCache_StoreAndLookup(t *testing.T) {

@@ -259,6 +259,7 @@
                     <!-- Actions -->
                     <div style="display:flex;gap:8px;margin-top:16px;">
                         <button class="btn btn-ghost" onclick="resetPricingDefaults()">Reset to Defaults</button>
+                        <button class="btn btn-ghost" id="refreshOpenRouterBtn" onclick="refreshOpenRouterPricing()" title="Pull current prices from OpenRouter using the server's OPENROUTER_API_KEY">Refresh from OpenRouter</button>
                         <button class="btn btn-primary" onclick="openPricingEditor()">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="8" y1="2" x2="8" y2="14"/>
@@ -537,9 +538,26 @@
                                     <span>Embedding Provider</span>
                                     <select id="embeddingProvider" class="setting-input-sm">
                                         <option value="openai">OpenAI</option>
+                                        <option value="aratiri-bge-m3">Aratiri bge-m3 (dense 1024 + sparse, hybrid)</option>
                                     </select>
                                 </label>
-                                <p class="setting-help">Provider for generating embeddings. Currently supports OpenAI.</p>
+                                <p class="setting-help">Provider for generating embeddings. <strong>Aratiri bge-m3</strong> is the self-hosted embedder (dense + sparse, hybrid scoring) — no per-token OpenAI cost.</p>
+                            </div>
+
+                            <div class="setting-item" id="embeddingBaseURLItem" style="display:none;">
+                                <label class="setting-label-inline">
+                                    <span>Embedding Base URL</span>
+                                    <input type="text" id="embeddingBaseURL" class="setting-input-sm" placeholder="http://platform-api.service.consul:8000/api/v1" autocomplete="off">
+                                </label>
+                                <p class="setting-help">platform-api base URL for bge-m3; <code>/embed</code> is appended. Use the in-cluster Consul URL.</p>
+                            </div>
+
+                            <div class="setting-item" id="semanticCacheSparseWeightItem" style="display:none;">
+                                <label class="setting-label-inline">
+                                    <span>Sparse Weight</span>
+                                    <input type="number" id="semanticCacheSparseWeight" min="0" max="1" step="0.05" class="setting-input-sm" placeholder="0.30">
+                                </label>
+                                <p class="setting-help">Hybrid blend (bge-m3 only): final score = (1 − w)·dense + w·sparse. 0 = dense-only.</p>
                             </div>
 
                             <div class="setting-item">
