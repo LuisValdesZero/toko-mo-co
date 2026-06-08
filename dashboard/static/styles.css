@@ -1333,8 +1333,12 @@ body {
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
     overflow-x: auto;
+    scrollbar-width: thin;
 }
-.setup-tabs::-webkit-scrollbar { display: none; }
+.setup-tabs::-webkit-scrollbar { height: 6px; }
+.setup-tabs::-webkit-scrollbar-track { background: transparent; }
+.setup-tabs::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+.setup-tabs::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
 
 .tab-btn {
     background: transparent;
@@ -1349,6 +1353,7 @@ body {
     margin-bottom: -1px;
     transition: color var(--t-fast), border-color var(--t-fast);
     white-space: nowrap;
+    flex-shrink: 0;
 }
 .tab-btn:hover { color: var(--text-primary); }
 .tab-btn.active {

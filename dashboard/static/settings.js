@@ -1044,9 +1044,20 @@ async function loadPricingData() {
         renderPricingProviderTabs();
         renderPricingList();
         renderUnknownModels();
+        renderPricingLastUpdated();
     } catch (err) {
         console.error('Failed to load pricing data:', err);
     }
+}
+
+// Shows the date+time of the most recently updated pricing row.
+function renderPricingLastUpdated() {
+    const el = document.getElementById('pricingLastUpdated');
+    if (!el) return;
+    const ts = pricingEntries.length
+        ? Math.max(0, ...pricingEntries.map(e => e.updated_at || 0))
+        : 0;
+    el.textContent = ts ? `Last updated: ${new Date(ts * 1000).toLocaleString()}` : '';
 }
 
 function renderStaleBadge(data) {
