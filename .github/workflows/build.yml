@@ -27,7 +27,7 @@ env:
   # We reuse ONE Docker Hub repository for multiple services, differentiated
   # by tag prefix. This service's tag prefix -> image `<repo>:toko-mo-co-latest`.
   # The repo name itself (DOCKER_HUB_REPO) is NOT hardcoded — it is loaded from
-  # Vault (mount aratiri-cloud) alongside the Docker Hub credentials.
+  # Vault (mount `VAULT_MOUNT` repo secret) alongside the Docker Hub credentials.
   SERVICE_TAG: toko-mo-co
 
 jobs:
@@ -118,18 +118,40 @@ jobs:
             echo "- Deploy tag: \`${SERVICE_TAG}-latest\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  notify-aratiri-platform:
-    name: Notify aratiri-platform (new image)
+  notify-platform:
+    name: Notify platform (new image)
     needs: build
     runs-on: ubuntu-latest
     # Only signal the downstream deploy on real main builds, not manual test runs
-    # off a branch. The receiver (aratiri-platform) redeploys llm-proxy on this event.
+    # off a branch. The downstream platform repo redeploys the service on this event.
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Dispatch toko-mo-co-image-pushed -> aratiri-platform
+      - name: Install Vault CLI
+        run: |
+          wget -qO- https://apt.releases.hashicorp.com/gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -qq
+          sudo apt-get install -y vault
+
+      - name: Load dispatch target from Vault
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_MOUNT: ${{ secrets.VAULT_MOUNT }}
+        run: |
+          set -euo pipefail
+          # Dispatch target repo is read from Vault (not hardcoded) so the private repo
+          # name never appears in this public workflow. Masked so it stays out of logs.
+          TARGET_REPO="$(vault kv get -mount="$VAULT_MOUNT" -field=value PLATFORM_REPO)"
+          echo "::add-mask::$TARGET_REPO"
+          echo "TARGET_REPO=$TARGET_REPO" >> "$GITHUB_ENV"
+
+      - name: Dispatch toko-mo-co-image-pushed
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          TARGET: LuisValdesZero/aratiri-platform
+          TARGET: ${{ env.TARGET_REPO }}
           IMAGE: ${{ needs.build.outputs.run_tag }}
           IMAGE_LATEST: ${{ needs.build.outputs.latest_tag }}
           COMMIT_SHA: ${{ github.sha }}
@@ -148,7 +170,7 @@ jobs:
                 commit_sha:   $sha,
                 run_url:      $run_url
               }}')
-          echo "Dispatching toko-mo-co-image-pushed -> $TARGET"
+          echo "Dispatching toko-mo-co-image-pushed -> target repo"
           http=$(curl -sS -o /tmp/resp.txt -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $GH_PAT" \
@@ -158,7 +180,7 @@ jobs:
             -d "$payload")
           echo "HTTP $http"
           if [ "$http" != "204" ]; then
-            echo "::error::Dispatch to $TARGET failed (HTTP $http)"
+            echo "::error::Dispatch to target repo failed (HTTP $http)"
             cat /tmp/resp.txt || true
             exit 1
           fi
