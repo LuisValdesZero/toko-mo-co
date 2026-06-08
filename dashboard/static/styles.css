@@ -1284,7 +1284,7 @@ body {
 .setup-drawer {
     position: fixed;
     top: 0; right: 0;
-    width: 500px;
+    width: 575px;
     height: 100vh;
     background: var(--bg-surface);
     border-left: 1px solid var(--border-default);
@@ -1333,12 +1333,12 @@ body {
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
     overflow-x: auto;
-    scrollbar-width: thin;
+    /* Hide the horizontal scrollbar cross-browser — the tabs still scroll via
+       wheel/drag, and the wider drawer lets them fit without a visible bar. */
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* legacy Edge/IE */
 }
-.setup-tabs::-webkit-scrollbar { height: 6px; }
-.setup-tabs::-webkit-scrollbar-track { background: transparent; }
-.setup-tabs::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
-.setup-tabs::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+.setup-tabs::-webkit-scrollbar { display: none; }  /* Chromium/WebKit */
 
 .tab-btn {
     background: transparent;
