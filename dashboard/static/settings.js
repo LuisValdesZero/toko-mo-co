@@ -86,10 +86,28 @@ document.addEventListener('DOMContentLoaded', () => {
 function updateEmbeddingProviderFields() {
     const provider = document.getElementById('embeddingProvider').value;
     const isAratiri = provider === 'aratiri-bge-m3';
-    const baseItem = document.getElementById('embeddingBaseURLItem');
     const sparseItem = document.getElementById('semanticCacheSparseWeightItem');
-    if (baseItem) baseItem.style.display = isAratiri ? '' : 'none';
     if (sparseItem) sparseItem.style.display = isAratiri ? '' : 'none';
+
+    // Model options: bge-m3 for Aratiri, the OpenAI models otherwise. (The bge-m3
+    // /embed endpoint ignores the model field, so this is a display choice.)
+    const modelSel = document.getElementById('embeddingModel');
+    if (modelSel) {
+        modelSel.querySelectorAll('.openai-model').forEach(o => { o.hidden = isAratiri; });
+        modelSel.querySelectorAll('.aratiri-model').forEach(o => { o.hidden = !isAratiri; });
+        if (isAratiri) {
+            modelSel.value = 'BAAI/bge-m3';
+        } else if (modelSel.value === 'BAAI/bge-m3') {
+            modelSel.value = 'text-embedding-3-small';
+        }
+    }
+
+    // Provider-aware API-key help + env-var name.
+    const keyHelp = document.getElementById('embeddingKeyHelp');
+    const keyEnv = document.getElementById('embeddingKeyEnvVar');
+    if (keyHelp) keyHelp.textContent = isAratiri ? 'Aratiri bge-m3 embedding key (sent as X-API-Key).' : 'OpenAI API key for embeddings.';
+    if (keyEnv) keyEnv.textContent = isAratiri ? 'SEMANTIC_CACHE_ARATIRI_API_KEY' : 'OPENAI_API_KEY';
+
     const keyInput = document.getElementById('embeddingAPIKey');
     if (keyInput && !keyInput.placeholder.includes('•')) {
         keyInput.placeholder = isAratiri ? 'platform API key (X-API-Key)' : 'sk-...';
@@ -138,23 +156,19 @@ async function loadSettings() {
         if (settings.embedding_model) {
             document.getElementById('embeddingModel').value = settings.embedding_model;
         }
-        if (settings.embedding_base_url) {
-            document.getElementById('embeddingBaseURL').value = settings.embedding_base_url;
-        }
         if (typeof settings.semantic_cache_sparse_weight === 'number') {
             document.getElementById('semanticCacheSparseWeight').value = settings.semantic_cache_sparse_weight;
         }
         updateEmbeddingProviderFields();
-        // API key: show masked version from server (don't fill password field)
+        // Configured status uses the server's effective-key signal (config OR provider env fallback).
         const keyStatus = document.getElementById('embeddingKeyStatus');
-        if (settings.embedding_api_key && settings.embedding_api_key.length > 0 && settings.embedding_api_key !== '') {
+        if (settings.embedding_key_configured) {
             keyStatus.textContent = '✓ Configured';
             keyStatus.style.color = 'var(--green)';
-            document.getElementById('embeddingAPIKey').placeholder = '••••••••';
+            if (settings.embedding_api_key) document.getElementById('embeddingAPIKey').placeholder = '••••••••';
         } else {
             keyStatus.textContent = '⚠ Not configured — semantic cache inactive';
             keyStatus.style.color = 'var(--red)';
-            document.getElementById('embeddingAPIKey').placeholder = 'sk-...';
         }
 
         // Memory Layer settings
@@ -580,7 +594,6 @@ async function saveSettings() {
         embedding_provider: document.getElementById('embeddingProvider').value,
         embedding_model: document.getElementById('embeddingModel').value,
         embedding_api_key: document.getElementById('embeddingAPIKey').value || '',
-        embedding_base_url: document.getElementById('embeddingBaseURL').value || '',
         semantic_cache_sparse_weight: parseFloat(document.getElementById('semanticCacheSparseWeight').value) || 0,
         // Memory Layer
         memory_enabled: document.getElementById('memoryEnabled').checked,
@@ -609,11 +622,13 @@ async function saveSettings() {
         // Re-fetch settings to get server-side state (masked key, etc.)
         const updated = await response.json();
         const keyStatus = document.getElementById('embeddingKeyStatus');
-        if (updated.embedding_api_key && updated.embedding_api_key.length > 0) {
-            keyStatus.textContent = '✓ Configured (' + updated.embedding_api_key + ')';
+        if (updated.embedding_key_configured) {
+            keyStatus.textContent = updated.embedding_api_key
+                ? '✓ Configured (' + updated.embedding_api_key + ')'
+                : '✓ Configured (from env)';
             keyStatus.style.color = 'var(--green)';
             document.getElementById('embeddingAPIKey').value = '';
-            document.getElementById('embeddingAPIKey').placeholder = updated.embedding_api_key;
+            if (updated.embedding_api_key) document.getElementById('embeddingAPIKey').placeholder = updated.embedding_api_key;
         } else {
             keyStatus.textContent = '⚠ Not configured — semantic cache inactive';
             keyStatus.style.color = 'var(--red)';

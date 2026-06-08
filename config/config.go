@@ -354,6 +354,39 @@ func maskAPIKey(key string) string {
 	return key[:3] + "..." + key[len(key)-4:]
 }
 
+// isAratiriProvider reports whether p selects the self-hosted bge-m3 embedder.
+func isAratiriProvider(p string) bool {
+	return p == "aratiri-bge-m3" || p == "aratiri" || p == "bge-m3"
+}
+
+// ResolveEmbeddingAPIKey returns the effective embedding API key: the configured key
+// if set, else the provider-appropriate env fallback. For aratiri-bge-m3:
+// SEMANTIC_CACHE_ARATIRI_API_KEY then PLATFORM_API_KEY; for openai: OPENAI_API_KEY.
+func (c *Config) ResolveEmbeddingAPIKey() string {
+	if c.EmbeddingAPIKey != "" {
+		return c.EmbeddingAPIKey
+	}
+	if isAratiriProvider(c.EmbeddingProvider) {
+		if v := os.Getenv("SEMANTIC_CACHE_ARATIRI_API_KEY"); v != "" {
+			return v
+		}
+		return os.Getenv("PLATFORM_API_KEY")
+	}
+	return os.Getenv("OPENAI_API_KEY")
+}
+
+// ResolveEmbeddingBaseURL returns the effective base URL. For aratiri-bge-m3 the
+// SEMANTIC_CACHE_ARATIRI_BASE_URL env (operator config) takes precedence; the base
+// URL is not user-editable in the dashboard.
+func (c *Config) ResolveEmbeddingBaseURL() string {
+	if isAratiriProvider(c.EmbeddingProvider) {
+		if v := os.Getenv("SEMANTIC_CACHE_ARATIRI_BASE_URL"); v != "" {
+			return v
+		}
+	}
+	return c.EmbeddingBaseURL
+}
+
 // validateSettings validates the runtime-tunable settings shared between
 // Config.validate() and SettingsAPI.HandlePut(). Single source of truth.
 func validateSettings(
@@ -508,6 +541,7 @@ type SettingsResponse struct {
 	EmbeddingModel          string  `json:"embedding_model"`
 	EmbeddingAPIKey         string  `json:"embedding_api_key"`
 	EmbeddingBaseURL        string  `json:"embedding_base_url"`
+	EmbeddingKeyConfigured  bool    `json:"embedding_key_configured"` // effective key present (config or provider env fallback)
 	SemanticCacheSparseWeight float64 `json:"semantic_cache_sparse_weight"`
 	MemoryEnabled           bool    `json:"memory_enabled"`
 	MemoryMaxEntries        int     `json:"memory_max_entries"`
@@ -581,6 +615,7 @@ func (s *SettingsAPI) HandleGet(w http.ResponseWriter, r *http.Request) {
 		EmbeddingModel:          s.cfg.EmbeddingModel,
 		EmbeddingAPIKey:         maskAPIKey(s.cfg.EmbeddingAPIKey),
 		EmbeddingBaseURL:        s.cfg.EmbeddingBaseURL,
+		EmbeddingKeyConfigured:  s.cfg.ResolveEmbeddingAPIKey() != "",
 		SemanticCacheSparseWeight: s.cfg.SemanticCacheSparseWeight,
 		MemoryEnabled:           s.cfg.MemoryEnabled,
 		MemoryMaxEntries:        s.cfg.MemoryMaxEntries,
