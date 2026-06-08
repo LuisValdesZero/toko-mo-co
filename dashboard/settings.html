@@ -240,9 +240,11 @@
                         <h2 class="settings-panel-title">Model Pricing</h2>
                         <p class="settings-panel-desc">Per-model cost rates for accurate spend tracking</p>
                     </div>
-                    <div style="display:flex;gap:6px;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span class="settings-panel-desc" id="pricingLastUpdated" style="font-size:12px;white-space:nowrap;"></span>
                         <span class="badge badge-muted" id="pricingStaleBadge" style="display:none;"></span>
                         <span class="badge badge-muted" id="pricingUnknownBadge" style="display:none;"></span>
+                        <button class="btn btn-ghost btn-sm" id="refreshOpenRouterBtn" onclick="refreshOpenRouterPricing()" title="Pull current prices from OpenRouter using the server's OPENROUTER_API_KEY">Update Prices</button>
                     </div>
                 </div>
 
@@ -259,7 +261,6 @@
                     <!-- Actions -->
                     <div style="display:flex;gap:8px;margin-top:16px;">
                         <button class="btn btn-ghost" onclick="resetPricingDefaults()">Reset to Defaults</button>
-                        <button class="btn btn-ghost" id="refreshOpenRouterBtn" onclick="refreshOpenRouterPricing()" title="Pull current prices from OpenRouter using the server's OPENROUTER_API_KEY">Refresh from OpenRouter</button>
                         <button class="btn btn-primary" onclick="openPricingEditor()">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="8" y1="2" x2="8" y2="14"/>
