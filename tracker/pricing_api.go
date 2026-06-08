@@ -31,6 +31,7 @@ func (h *PricingAPIHandler) RegisterRoutes(r *mux.Router, authWrap func(http.Han
 	r.Handle("/api/pricing", authWrap(h.HandleCreate)).Methods("POST")
 	r.Handle("/api/pricing/unknown-models", authWrap(h.HandleUnknownModels)).Methods("GET")
 	r.Handle("/api/pricing/reset-defaults", authWrap(h.HandleResetDefaults)).Methods("POST")
+	r.Handle("/api/pricing/refresh-openrouter", authWrap(h.HandleRefreshOpenRouter)).Methods("POST")
 	r.Handle("/api/pricing/stale-check", authWrap(h.HandleStaleCheck)).Methods("GET")
 	r.Handle("/api/pricing/{id:[0-9]+}", authWrap(h.HandleGet)).Methods("GET")
 	r.Handle("/api/pricing/{id:[0-9]+}", authWrap(h.HandleUpdate)).Methods("PUT")
@@ -228,6 +229,23 @@ func (h *PricingAPIHandler) HandleResetDefaults(w http.ResponseWriter, r *http.R
 	pricingRespondJSON(w, http.StatusOK, map[string]interface{}{
 		"status": "reset",
 		"count":  count,
+	})
+}
+
+// HandleRefreshOpenRouter pulls current model pricing from OpenRouter (using the
+// server's OPENROUTER_API_KEY) and upserts it under the openrouter/<id> prefix.
+// POST /api/pricing/refresh-openrouter
+func (h *PricingAPIHandler) HandleRefreshOpenRouter(w http.ResponseWriter, r *http.Request) {
+	n, err := RefreshFromOpenRouter(h.db, h.store)
+	if err != nil {
+		log.Printf("[PRICING-API] refresh-openrouter: %v", err)
+		pricingRespondJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	log.Printf("[PRICING] refreshed %d models from OpenRouter", n)
+	pricingRespondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "refreshed",
+		"updated": n,
 	})
 }
 
