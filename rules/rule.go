@@ -35,7 +35,8 @@ const (
 	CondRequestCount  ConditionType = "request_count"
 	CondPromptContent ConditionType = "prompt_content"
 	CondLoopDetected  ConditionType = "loop_detected"
-	CondJailbreak     ConditionType = "jailbreak" // NeMo Guard verdict (bool, or score vs threshold)
+	CondJailbreak     ConditionType = "jailbreak"  // NeMo Guard NIM verdict (bool, or score vs threshold)
+	CondGuardrails    ConditionType = "guardrails" // NeMo Guardrails service verdict (blocked, or violation_type match)
 )
 
 // MatchMode controls how string conditions compare values.
@@ -267,6 +268,23 @@ func BuiltinTemplates() []RuleTemplate {
 				BlockMessage: "Request blocked: jailbreak attempt detected.",
 			},
 			Priority: 88,
+			Editable: []string{"block_message", "scope_agent_id"},
+		},
+		{
+			ID:          "nemo-guardrails",
+			Name:        "NeMo Guardrails",
+			Category:    "safety",
+			Description: "Block prompts the NeMo Guardrails service flags (triage rails: PII-intent, ToS, jailbreak / prompt-injection). Requires CONFIG_NEMOGUARDRAILS_URL to be set.",
+			Icon:        "shield",
+			Conditions: []ConditionSpec{
+				{Type: CondGuardrails},
+			},
+			Action: ActionSpec{
+				Type:         ActionBlock,
+				BlockStatus:  403,
+				BlockMessage: "Request blocked by NeMo Guardrails.",
+			},
+			Priority: 87,
 			Editable: []string{"block_message", "scope_agent_id"},
 		},
 		{

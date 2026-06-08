@@ -36,6 +36,12 @@ type RuleContext struct {
 	// NeMo Guard jailbreak verdict (set by the handler before evaluation; zero if disabled)
 	JailbreakDetected bool
 	JailbreakScore    float64
+
+	// NeMo Guardrails service verdict (set by the handler from POST /guard/input;
+	// zero if disabled). ViolationType is the triage label (jailbreak / pii_lookup /
+	// credit_card / ...) when blocked.
+	GuardrailsBlocked       bool
+	GuardrailsViolationType string
 }
 
 // RuleResult is returned by Engine.Evaluate().

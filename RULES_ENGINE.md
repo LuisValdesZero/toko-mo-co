@@ -74,6 +74,10 @@ A production-grade rules engine has been successfully implemented for Toko-Mo-Co
 | `request_count` | Request rate limit | threshold, window_sec |
 | `prompt_content` | Prompt text matching | value, mode |
 | `loop_detected` | Loop detection flag | (no parameters) |
+| `jailbreak` | NeMo Guard NIM verdict (`CONFIG_NEMOGUARD_URL`) | (none) = boolean; op+threshold = score |
+| `guardrails` | NeMo Guardrails service verdict (`CONFIG_NEMOGUARDRAILS_URL`) | (none) = blocked; `value` = violation_type (e.g. `jailbreak`, `pii_lookup`, `credit_card`) |
+
+The `guardrails` condition is fed by the NeMo Guardrails service (`POST /guard/input` triage). When `CONFIG_NEMOGUARDRAILS_URL` is set the proxy also runs `POST /guard/output` on non-streaming replies to mask PII / block flagged output. See the **NeMo Guardrails** rule template and `config.go` (`CONFIG_NEMOGUARDRAILS_*`).
 
 ## Action Types
 

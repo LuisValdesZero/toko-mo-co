@@ -89,6 +89,8 @@ func compileCondition(spec ConditionSpec, limiter *RateLimiter, ruleID int64) (C
 		return &loopDetectedCondition{}, nil
 	case CondJailbreak:
 		return &jailbreakCondition{op: spec.Op, threshold: spec.Threshold}, nil
+	case CondGuardrails:
+		return &guardrailsCondition{violationType: spec.Value}, nil
 	default:
 		return nil, fmt.Errorf("unknown condition type: %q", spec.Type)
 	}
@@ -281,3 +283,20 @@ func (c *jailbreakCondition) Evaluate(ctx *RuleContext) bool {
 	return evalOp(ctx.JailbreakScore, c.op, c.threshold)
 }
 func (c *jailbreakCondition) CondType() ConditionType { return CondJailbreak }
+
+// ── Guardrails condition (NeMo Guardrails service verdict) ────────────────────
+// With no value, matches the boolean blocked verdict (ctx.GuardrailsBlocked). With
+// a value (e.g. "jailbreak", "pii_lookup", "credit_card"), matches when the
+// triage violation_type equals it.
+
+type guardrailsCondition struct {
+	violationType string
+}
+
+func (c *guardrailsCondition) Evaluate(ctx *RuleContext) bool {
+	if c.violationType == "" {
+		return ctx.GuardrailsBlocked
+	}
+	return ctx.GuardrailsViolationType == c.violationType
+}
+func (c *guardrailsCondition) CondType() ConditionType { return CondGuardrails }
