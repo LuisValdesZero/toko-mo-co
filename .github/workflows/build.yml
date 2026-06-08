@@ -1,0 +1,115 @@
+---
+name: Build and Push toko-mo-co to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'examples/**'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force rebuild'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  # Opt every Node.js-based action (actions/checkout, docker/*, etc.)
+  # into the Node 24 runtime. As of 2026-06-02 GHA forces Node 24 by
+  # default; before that we get a 'Node.js 20 deprecated' warning on
+  # every step. Setting this env var on the workflow surfaces silences
+  # the warning and makes the runtime switch explicit + intentional.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # We reuse ONE Docker Hub repository for multiple services, differentiated
+  # by tag prefix. This service's tag prefix -> image `<repo>:toko-mo-co-latest`.
+  # The repo name itself (DOCKER_HUB_REPO) is NOT hardcoded — it is loaded from
+  # Vault (mount aratiri-cloud) alongside the Docker Hub credentials.
+  SERVICE_TAG: toko-mo-co
+
+jobs:
+  build:
+    name: Build toko-mo-co
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Vault CLI
+        run: |
+          wget -qO- https://apt.releases.hashicorp.com/gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -qq
+          sudo apt-get install -y vault
+
+      - name: Load secrets from Vault
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_MOUNT: ${{ secrets.VAULT_MOUNT }}
+        run: |
+          set -euo pipefail
+          # KV v2 mount (VAULT_MOUNT), one secret per key in field `value`.
+          for KEY in DOCKER_HUB_USERNAME DOCKER_HUB_TOKEN DOCKER_HUB_REPO; do
+            VALUE="$(vault kv get -mount="$VAULT_MOUNT" -field=value "$KEY")"
+            echo "::add-mask::$VALUE"
+            echo "$KEY=$VALUE" >> "$GITHUB_ENV"
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_TOKEN }}
+
+      - name: Generate image tags
+        id: tags
+        run: |
+          GIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${GIT_SHA:0:7}"
+          RUN_ID="gh-${{ github.run_id }}"
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          REPO="${DOCKER_HUB_REPO}"
+          SERVICE="${SERVICE_TAG}"
+
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "run_tag=${REPO}:${SERVICE}-${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+          # Traceability tags (run-id / sha / timestamp) + the deploy `-latest` tag.
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${REPO}:${SERVICE}-${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "${REPO}:${SERVICE}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "${REPO}:${SERVICE}-${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+          echo "${REPO}:${SERVICE}-latest" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Verify image exists on Docker Hub
+        run: |
+          docker buildx imagetools inspect "${{ steps.tags.outputs.run_tag }}"
+
+      - name: Build Summary
+        run: |
+          {
+            echo "### Built: toko-mo-co"
+            echo "- Run image: \`${{ steps.tags.outputs.run_tag }}\`"
+            echo "- Deploy tag: \`${SERVICE_TAG}-latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
