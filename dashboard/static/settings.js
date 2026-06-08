@@ -1091,29 +1091,52 @@ function renderStaleBadge(data) {
     }
 }
 
+// pricingFamily derives the model family from a pricing entry. OpenRouter ids are
+// `openrouter/<vendor>/<model>` (e.g. openrouter/openai/gpt-4o-mini,
+// openrouter/meta-llama/llama-3.1-8b-instruct), so the family comes from the vendor
+// segment; bare ids fall back to name matching.
+function pricingFamily(e) {
+    let id = (e.model_prefix || '').toLowerCase();
+    if (id.startsWith('openrouter/')) id = id.slice('openrouter/'.length);
+    const vendor = id.split('/')[0] || '';
+    if (vendor === 'openai' || vendor.startsWith('gpt') || vendor === 'o1' || vendor === 'o3' || vendor === 'o4') return 'openai';
+    if (vendor === 'anthropic' || vendor.startsWith('claude')) return 'anthropic';
+    if (vendor === 'google' || vendor.startsWith('gemini') || vendor === 'gemma') return 'google';
+    if (vendor === 'meta-llama' || vendor.includes('llama')) return 'llama';
+    if (vendor.startsWith('qwen')) return 'qwen';
+    if (vendor === 'deepseek') return 'deepseek';
+    // Bare ids without a vendor segment — match common families by name.
+    if (id.includes('llama')) return 'llama';
+    if (id.includes('qwen')) return 'qwen';
+    if (id.includes('deepseek')) return 'deepseek';
+    if (id.includes('claude')) return 'anthropic';
+    if (id.includes('gemini') || id.includes('gemma')) return 'google';
+    if (id.includes('gpt') || id.startsWith('o1') || id.startsWith('o3')) return 'openai';
+    return 'other';
+}
+
 function renderPricingProviderTabs() {
     const container = document.getElementById('pricingProviderTabs');
     if (!container) return;
 
-    const providers = { all: 0, openai: 0, anthropic: 0, google: 0, other: 0 };
-    pricingEntries.forEach(e => {
-        providers.all++;
-        const p = e.provider || 'other';
-        providers[p] = (providers[p] || 0) + 1;
-    });
+    const counts = { all: 0, openai: 0, anthropic: 0, google: 0, llama: 0, qwen: 0, deepseek: 0, other: 0 };
+    pricingEntries.forEach(e => { counts.all++; counts[pricingFamily(e)]++; });
 
     const tabs = [
         { key: 'all', label: 'All' },
         { key: 'openai', label: 'OpenAI' },
         { key: 'anthropic', label: 'Anthropic' },
         { key: 'google', label: 'Google' },
+        { key: 'llama', label: 'Llama' },
+        { key: 'qwen', label: 'Qwen' },
+        { key: 'deepseek', label: 'DeepSeek' },
     ];
-    // Add "other" tab only if there are entries
-    if (providers.other > 0) tabs.push({ key: 'other', label: 'Other' });
+    // Add "other" tab only if there are entries.
+    if (counts.other > 0) tabs.push({ key: 'other', label: 'Other' });
 
     container.innerHTML = tabs.map(t =>
         `<button class="pricing-tab${activePricingProvider === t.key ? ' active' : ''}" onclick="filterPricingByProvider('${t.key}')">
-            ${t.label} <span class="pricing-tab-count">${providers[t.key] || 0}</span>
+            ${t.label} <span class="pricing-tab-count">${counts[t.key] || 0}</span>
         </button>`
     ).join('');
 }
@@ -1130,7 +1153,7 @@ function renderPricingList() {
 
     const filtered = activePricingProvider === 'all'
         ? pricingEntries
-        : pricingEntries.filter(e => e.provider === activePricingProvider);
+        : pricingEntries.filter(e => pricingFamily(e) === activePricingProvider);
 
     if (filtered.length === 0) {
         container.innerHTML = `
