@@ -96,6 +96,11 @@ type ActionSpec struct {
 
 	// redirect
 	RedirectURL string `json:"redirect_url,omitempty"`
+	// RedirectProviders is an ordered failover chain of configured custom-provider
+	// names (Provider Failover). Index 0 = primary; each attempt uses that provider's
+	// default_model. On failure the proxy cascades to the next provider. Takes
+	// precedence over RedirectURL when set.
+	RedirectProviders []string `json:"redirect_providers,omitempty"`
 
 	// Rate-limit parameters (only meaningful when Type == "rate_limit")
 	RateLimitRequests  int     `json:"rate_limit_requests,omitempty"`   // N requests
@@ -323,17 +328,15 @@ func BuiltinTemplates() []RuleTemplate {
 			ID:          "provider-redirect",
 			Name:        "Provider Failover",
 			Category:    "routing",
-			Description: "Redirect requests from one provider to another. Useful for A/B testing or failover.",
+			Description: "Route through an ordered chain of configured providers — the first is primary, the rest are failovers. Each provider uses its default model; if one fails the request cascades to the next.",
 			Icon:        "switch",
-			Conditions: []ConditionSpec{
-				{Type: CondProvider, Value: "openai", Mode: MatchExact},
-			},
+			Conditions:  []ConditionSpec{},
 			Action: ActionSpec{
-				Type:        ActionRedirect,
-				RedirectURL: "https://api.anthropic.com/v1/messages",
+				Type:              ActionRedirect,
+				RedirectProviders: []string{"or-openai", "or-anthropic", "or-google"},
 			},
 			Priority: 40,
-			Editable: []string{"value", "redirect_url", "scope_agent_id"},
+			Editable: []string{"redirect_providers", "scope_agent_id"},
 		},
 		{
 			ID:          "token-guard",

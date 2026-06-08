@@ -52,9 +52,10 @@ type RuleResult struct {
 	BlockMessage         string // response body sent to the caller
 	OverrideModel        string // non-empty when Action is override_model
 	InjectedSystemPrompt string // non-empty when Action is inject_prompt
-	RedirectURL          string // non-empty when Action is redirect
-	MatchedRule          *Rule  // which rule fired; nil if no match
-	RateLimited          bool   // true when a rate-limit action triggered
+	RedirectURL          string   // non-empty when Action is redirect (single-URL legacy)
+	RedirectProviders    []string // ordered provider failover chain when Action is redirect
+	MatchedRule          *Rule    // which rule fired; nil if no match
+	RateLimited          bool     // true when a rate-limit action triggered
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────

@@ -323,6 +323,7 @@ func (d *DB) migrate() error {
 		auth_header  TEXT    NOT NULL DEFAULT '',
 		auth_env_var TEXT    NOT NULL DEFAULT '',
 		models_json  TEXT    NOT NULL DEFAULT '[]',
+		default_model TEXT   NOT NULL DEFAULT '',
 		enabled      INTEGER NOT NULL DEFAULT 1,
 		created_at   INTEGER NOT NULL,
 		updated_at   INTEGER NOT NULL
@@ -405,6 +406,7 @@ func (d *DB) migrate() error {
 		{"requests", "jailbreak_score", "REAL NOT NULL DEFAULT 0"},
 		{"requests", "jailbreak_category", "TEXT NOT NULL DEFAULT ''"},
 		{"rules", "evidence", "TEXT NOT NULL DEFAULT ''"},
+		{"custom_providers", "default_model", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		d.db.Exec(`ALTER TABLE ` + col.table + ` ` + addCol + ` ` + col.name + ` ` + col.def) //nolint:errcheck
 	}
