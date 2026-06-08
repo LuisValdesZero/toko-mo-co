@@ -545,14 +545,6 @@
                                 <p class="setting-help">Provider for generating embeddings. <strong>Aratiri bge-m3</strong> is the self-hosted embedder (dense + sparse, hybrid scoring) — no per-token OpenAI cost.</p>
                             </div>
 
-                            <div class="setting-item" id="embeddingBaseURLItem" style="display:none;">
-                                <label class="setting-label-inline">
-                                    <span>Embedding Base URL</span>
-                                    <input type="text" id="embeddingBaseURL" class="setting-input-sm" placeholder="http://platform-api.service.consul:8000/api/v1" autocomplete="off">
-                                </label>
-                                <p class="setting-help">platform-api base URL for bge-m3; <code>/embed</code> is appended. Use the in-cluster Consul URL.</p>
-                            </div>
-
                             <div class="setting-item" id="semanticCacheSparseWeightItem" style="display:none;">
                                 <label class="setting-label-inline">
                                     <span>Sparse Weight</span>
@@ -564,10 +556,11 @@
                             <div class="setting-item">
                                 <label class="setting-label-inline">
                                     <span>Embedding Model</span>
-                                    <select id="embeddingModel" class="setting-input-sm">
-                                        <option value="text-embedding-3-small">text-embedding-3-small (1536d, cheapest)</option>
-                                        <option value="text-embedding-3-large">text-embedding-3-large (3072d, best)</option>
-                                        <option value="text-embedding-ada-002">text-embedding-ada-002 (1536d, legacy)</option>
+                                    <select id="embeddingModel" class="setting-input-wide">
+                                        <option class="openai-model" value="text-embedding-3-small">text-embedding-3-small (1536d, cheapest)</option>
+                                        <option class="openai-model" value="text-embedding-3-large">text-embedding-3-large (3072d, best)</option>
+                                        <option class="openai-model" value="text-embedding-ada-002">text-embedding-ada-002 (1536d, legacy)</option>
+                                        <option class="aratiri-model" value="BAAI/bge-m3">BAAI/bge-m3 (1024d dense + sparse, hybrid)</option>
                                     </select>
                                 </label>
                                 <p class="setting-help">Model used for generating embedding vectors. Smaller models are faster and cheaper.</p>
@@ -576,9 +569,9 @@
                             <div class="setting-item">
                                 <label class="setting-label-inline">
                                     <span>Embedding API Key</span>
-                                    <input type="password" id="embeddingAPIKey" class="setting-input-sm" placeholder="sk-..." autocomplete="off">
+                                    <input type="password" id="embeddingAPIKey" class="setting-input-wide" placeholder="sk-..." autocomplete="off">
                                 </label>
-                                <p class="setting-help">OpenAI API key for embeddings. <strong>Required</strong> for semantic cache and memory. Falls back to <code>OPENAI_API_KEY</code> env var.</p>
+                                <p class="setting-help"><span id="embeddingKeyHelp">OpenAI API key for embeddings.</span> <strong>Required</strong> for semantic cache and memory. Falls back to <code id="embeddingKeyEnvVar">OPENAI_API_KEY</code> env var.</p>
                                 <p class="setting-help" id="embeddingKeyStatus" style="color:var(--red);">⚠ Not configured — semantic cache inactive</p>
                             </div>
 

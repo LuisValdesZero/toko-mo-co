@@ -39,9 +39,11 @@ import (
 func newEmbedderFromConfig(c *config.Config) (embedding.Embedder, error) {
 	switch c.EmbeddingProvider {
 	case "aratiri-bge-m3", "aratiri", "bge-m3":
+		// Base URL + key resolve from SEMANTIC_CACHE_ARATIRI_* env (operator config)
+		// when not set in settings; the embedder still falls back to PLATFORM_API_KEY.
 		return embedding.NewAratiriEmbedder(
-			embedding.WithAratiriBaseURL(c.EmbeddingBaseURL),
-			embedding.WithAratiriAPIKey(c.EmbeddingAPIKey),
+			embedding.WithAratiriBaseURL(c.ResolveEmbeddingBaseURL()),
+			embedding.WithAratiriAPIKey(c.ResolveEmbeddingAPIKey()),
 		)
 	default: // "openai" or unset
 		return embedding.NewOpenAIEmbedder(
