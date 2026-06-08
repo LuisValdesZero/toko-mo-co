@@ -20,6 +20,7 @@ import (
 	"tokomoco/detector"
 	"tokomoco/embedding"
 	"tokomoco/memory"
+	"tokomoco/metrics"
 	"tokomoco/nemoguard"
 	"tokomoco/providers"
 	"tokomoco/proxy"
@@ -354,6 +355,14 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok"}`)
 	}).Methods("GET")
+
+	// Prometheus metrics — public (the service is Consul-only; CONFIG_AUTH_ENABLED=false).
+	// Response-cache gauges are read at scrape time via the registered collector.
+	metrics.RegisterCacheCollector(func() (int, int, int64, int64, int64, float64, float64) {
+		s := responseCache.Stats()
+		return s.Entries, s.MaxEntries, s.Hits, s.Misses, s.TokensSaved, s.HitRate, s.CostSaved
+	})
+	r.Handle("/metrics", metrics.Handler()).Methods("GET")
 
 	// Dashboard — public (served from browser, auth is for API calls)
 	r.HandleFunc("/", dashboard.ServeIndex).Methods("GET")
