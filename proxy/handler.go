@@ -171,12 +171,23 @@ func (h *Handler) currentRetryConfig() reliability.RetryConfig {
 
 // HandleOpenAI handles OpenAI requests
 func (h *Handler) HandleOpenAI(w http.ResponseWriter, r *http.Request) {
-	h.handleRequest(w, r, "openai", OpenAIBaseURL+"/v1/chat/completions")
+	h.handleRequest(w, r, "openai", OpenAIBaseURL+"/v1/chat/completions", false)
+}
+
+// HandleOpenAITrackOnly is a meter-only sibling of HandleOpenAI: it forwards the
+// request and records the cost / Request-Log row exactly like the normal path, but
+// runs NONE of the gates/transforms (loop detection, NeMo Guard, guardrails in/out,
+// rules engine, PII redaction, cache, memory). The upstream response body is
+// returned verbatim. Used by internal callers (e.g. the guardrails classifier) that
+// must be tracked for cost without being gated or having their payload mutated, and
+// that must never recurse back through the guardrails gate.
+func (h *Handler) HandleOpenAITrackOnly(w http.ResponseWriter, r *http.Request) {
+	h.handleRequest(w, r, "openai", OpenAIBaseURL+"/v1/chat/completions", true)
 }
 
 // HandleAnthropic handles Anthropic requests
 func (h *Handler) HandleAnthropic(w http.ResponseWriter, r *http.Request) {
-	h.handleRequest(w, r, "anthropic", AnthropicBaseURL+"/v1/messages")
+	h.handleRequest(w, r, "anthropic", AnthropicBaseURL+"/v1/messages", false)
 }
 
 // HandleGemini handles Gemini requests
@@ -201,7 +212,7 @@ func (h *Handler) HandleGemini(w http.ResponseWriter, r *http.Request) {
 		endpoint = "/v1beta/models/" + model + ":streamGenerateContent?alt=sse"
 	}
 
-	h.handleRequest(w, r, "gemini", GeminiBaseURL+endpoint)
+	h.handleRequest(w, r, "gemini", GeminiBaseURL+endpoint, false)
 }
 
 // executeUpstreamRequest performs the HTTP request with retry and optional fallback.
@@ -331,7 +342,7 @@ func effectiveFormat(provider string, cp *providers.CustomProvider) string {
 }
 
 // handleRequest is the core proxy logic
-func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider, upstreamURL string) {
+func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider, upstreamURL string, trackOnly bool) {
 	// ── Read & parse request body (capped at 10 MB to prevent OOM) ──────────
 	const maxBodySize = 10 << 20 // 10 MB
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize+1))
@@ -486,8 +497,11 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		}
 	}
 
-	// ── Loop detection ──────────────────────────────────────────────────────
-	loopResult := h.loopDetector.DetectLoop(prompt, session.ID)
+	// ── Loop detection (skipped on the meter-only /track endpoint) ──────────
+	var loopResult detector.LoopDetectionResult
+	if !trackOnly {
+		loopResult = h.loopDetector.DetectLoop(prompt, session.ID)
+	}
 
 	// ── Rules evaluation ────────────────────────────────────────────────────
 	var matchedRuleID int64
@@ -500,7 +514,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	var jbDetected bool
 	var jbScore float64
 	var jbCategory string
-	if h.nemoGuard != nil {
+	if !trackOnly && h.nemoGuard != nil {
 		jbCtx, cancel := context.WithTimeout(r.Context(), h.cfg.NeMoGuardTimeout())
 		res, jbErr := h.nemoGuard.Classify(jbCtx, extractConversationText(reqData, messages, apiFormat))
 		cancel()
@@ -519,7 +533,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	var grBlocked bool
 	var grViolationType string
 	var grReason string
-	if h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) {
+	if !trackOnly && h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) {
 		grCtx, cancel := context.WithTimeout(r.Context(), h.cfg.NeMoGuardrailsTimeout())
 		// Only the LAST message: the input gate classifies the current turn, not the whole
 		// history. Sending the full transcript ("Message: Message: ...") was the dominant
@@ -538,7 +552,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 		}
 	}
 
-	if h.rulesEngine != nil {
+	if !trackOnly && h.rulesEngine != nil {
 		rctx := &rules.RuleContext{
 			AgentID:                 agentID,
 			AppName:                 appName,
@@ -599,7 +613,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// A CondJailbreak rule (if any) already returned above. Otherwise, when a
 	// jailbreak was detected and mode is "block" (default), reject here. In
 	// "flag" mode the request is forwarded and the detection is recorded below.
-	if jbDetected && h.nemoGuard != nil && h.nemoGuard.Mode() == "block" {
+	if !trackOnly && jbDetected && h.nemoGuard != nil && h.nemoGuard.Mode() == "block" {
 		h.nemoGuard.MarkBlocked()
 		http.Error(w, "Request blocked: jailbreak attempt detected.", http.StatusForbidden)
 		h.persistAndBroadcast(session, provider, model, agentID, appName,
@@ -616,7 +630,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// A CondGuardrails rule (if any) already returned above. Otherwise, when the
 	// triage rails blocked the input and mode is "block" (default), reject here.
 	// Recorded via the jailbreak audit columns as "nemoguardrails:<violation_type>".
-	if grBlocked && h.nemoGuardrails != nil && h.nemoGuardrails.Mode() == "block" {
+	if !trackOnly && grBlocked && h.nemoGuardrails != nil && h.nemoGuardrails.Mode() == "block" {
 		msg := "Request blocked by NeMo Guardrails."
 		if grReason != "" {
 			msg = "Request blocked by NeMo Guardrails: " + grReason
@@ -635,7 +649,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	// ── PII Redaction ──────────────────────────────────────────────────────
 	var piiRedactedCount int
 	var piiCategoriesJSON string
-	if h.cfg.PIIEnabled {
+	if !trackOnly && h.cfg.PIIEnabled {
 		piiCfg := redactor.Config{
 			Enabled:    true,
 			Mode:       h.cfg.PIIMode,
@@ -660,7 +674,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	}
 
 	// ── Memory retrieval (inject relevant memories as context) ──────────────
-	if h.memoryStore != nil && h.memoryStore.IsEnabled() && h.cfg.MemoryEnabled {
+	if !trackOnly && h.memoryStore != nil && h.memoryStore.IsEnabled() && h.cfg.MemoryEnabled {
 		memResults, memErr := h.memoryStore.Search(prompt, agentID, h.cfg.MemoryMaxResults)
 		if memErr != nil {
 			log.Printf("[MEMORY] search error: %v", memErr)
@@ -684,7 +698,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	var semanticKey string
 	cacheHit := false
 
-	if !isStreaming && h.responseCache != nil && h.responseCache.IsEnabled() {
+	if !trackOnly && !isStreaming && h.responseCache != nil && h.responseCache.IsEnabled() {
 		// Check opt-out header
 		if r.Header.Get("X-Cache-Control") != "no-cache" {
 			// Check temperature (only cache temp=0 if configured)
@@ -809,13 +823,13 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	var cachedInputTokens int
 
 	if isStreaming {
-		sResult := h.handleStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, loopResult)
+		sResult := h.handleStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, loopResult, trackOnly)
 		// Use exact provider-reported token counts when available
 		inputTokens = sResult.inputTokens
 		cachedInputTokens = sResult.cachedInputTokens
 		outputTokens = sResult.outputTokens
 	} else {
-		nsResult := h.handleNonStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, agentID, loopResult)
+		nsResult := h.handleNonStreamingResponse(w, resp, session, model, inputTokens, apiFormat, prompt, agentID, loopResult, trackOnly)
 		// Use exact provider-reported token counts (not tiktoken pre-estimates)
 		inputTokens = nsResult.inputTokens
 		cachedInputTokens = nsResult.cachedInputTokens
@@ -869,7 +883,7 @@ func (h *Handler) handleRequest(w http.ResponseWriter, r *http.Request, provider
 	}
 
 	// ── Memory extraction (async — extract facts from conversation) ─────────
-	if !isStreaming && h.memoryStore != nil && h.memoryStore.IsEnabled() && h.cfg.MemoryEnabled &&
+	if !trackOnly && !isStreaming && h.memoryStore != nil && h.memoryStore.IsEnabled() && h.cfg.MemoryEnabled &&
 		resp.StatusCode == http.StatusOK && responseBodyBytes != nil {
 		capturedBody := bodyBytes         // request body
 		capturedResp := responseBodyBytes // response body
@@ -1051,7 +1065,7 @@ type streamingResult struct {
 
 // handleStreamingResponse handles streaming responses; returns a streamingResult
 // with exact token counts when available from the provider's final SSE chunk.
-func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt string, loopResult detector.LoopDetectionResult) streamingResult {
+func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt string, loopResult detector.LoopDetectionResult, trackOnly bool) streamingResult {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1087,7 +1101,7 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 		}
 
 		if strings.Contains(line, "[DONE]") {
-			if !warningInjected && lastContentChunk != nil {
+			if !trackOnly && !warningInjected && lastContentChunk != nil {
 				h.injectWarningIntoChunk(w, lastContentChunk, session, model, inputTokens, outputTokens, apiFormat, prompt, loopResult, flusher)
 				warningInjected = true
 			}
@@ -1179,7 +1193,7 @@ type nonStreamingResult struct {
 // handleNonStreamingResponse handles non-streaming responses.
 // It returns a nonStreamingResult with exact token counts from the provider
 // (falling back to tiktoken estimates only when the provider omits usage).
-func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt, agentID string, loopResult detector.LoopDetectionResult) nonStreamingResult {
+func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.Response, session *tracker.Session, model string, inputTokens int, apiFormat, prompt, agentID string, loopResult detector.LoopDetectionResult, trackOnly bool) nonStreamingResult {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		http.Error(w, "Failed to read response", http.StatusBadGateway)
@@ -1209,7 +1223,7 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 	totalCost, _, _, _ := session.GetStats()
 
 	// Only inject loop warnings on successful responses — don't mutate error bodies
-	if loopResult.LoopDetected && resp.StatusCode < 400 {
+	if !trackOnly && loopResult.LoopDetected && resp.StatusCode < 400 {
 		warning := detector.GenerateWarningMessage(loopResult, totalCost)
 		metadata := injector.Metadata{
 			Warning:      warning,
@@ -1225,7 +1239,7 @@ func (h *Handler) handleNonStreamingResponse(w http.ResponseWriter, resp *http.R
 	// ── NeMo Guardrails output gate (POST /guard/output) ────────────────────
 	// Mask PII / block flagged output before forwarding. Non-streaming only
 	// (streaming responses are not output-guarded); fail-open; skip error bodies.
-	if h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) && resp.StatusCode < 400 {
+	if !trackOnly && h.nemoGuardrails != nil && !h.cfg.GuardrailsExempt(agentID) && resp.StatusCode < 400 {
 		bodyBytes = h.applyOutputGuard(bodyBytes, apiFormat)
 	}
 

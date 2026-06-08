@@ -379,6 +379,11 @@ func main() {
 	// Proxy endpoints — protected by API key auth.
 	// Chain: incoming → security headers → auth middleware → proxy handler.
 	r.Handle("/v1/chat/completions", authWrap(proxyHandler.HandleOpenAI)).Methods("POST")
+	// Meter-only sibling of /v1/chat/completions: same forward + cost / Request-Log
+	// tracking, but runs NO gates/transforms (guardrails, loop, rules, PII, cache,
+	// memory) and returns the body verbatim. A client sets base_url=<proxy>/track/v1
+	// and issues POST {base_url}/chat/completions.
+	r.Handle("/track/v1/chat/completions", authWrap(proxyHandler.HandleOpenAITrackOnly)).Methods("POST")
 	r.Handle("/v1/messages", authWrap(proxyHandler.HandleAnthropic)).Methods("POST")
 	r.Handle("/v1beta/models/{model}:streamGenerateContent", authWrap(proxyHandler.HandleGemini)).Methods("POST")
 	r.Handle("/v1beta/models/{model}:generateContent", authWrap(proxyHandler.HandleGemini)).Methods("POST")
