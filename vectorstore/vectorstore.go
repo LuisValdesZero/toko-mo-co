@@ -15,16 +15,15 @@ package vectorstore
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pgvector/pgvector-go"
 
+	"tokomoco/embedding"
 	"tokomoco/store"
 )
 
@@ -109,7 +108,6 @@ func (vs *VectorStore) migrate() error {
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS semantic_cache_vectors (
 				cache_hash TEXT PRIMARY KEY,
 				vector     vector(%d) NOT NULL,
-				sparse     TEXT,
 				provider   TEXT NOT NULL DEFAULT '',
 				model      TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL
@@ -123,7 +121,6 @@ func (vs *VectorStore) migrate() error {
 			`CREATE TABLE IF NOT EXISTS semantic_cache_vectors (
 				cache_hash TEXT PRIMARY KEY,
 				vector     BLOB NOT NULL,
-				sparse     TEXT,
 				provider   TEXT NOT NULL DEFAULT '',
 				model      TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL
@@ -136,9 +133,15 @@ func (vs *VectorStore) migrate() error {
 			return err
 		}
 	}
-	// Backfill the sparse column on tables created before hybrid support. Both
-	// dialects error if it already exists; that error is benign and ignored.
-	vs.db.Exec(`ALTER TABLE semantic_cache_vectors ADD COLUMN sparse TEXT`) //nolint:errcheck
+	// `sparse` is a NATIVE pgvector sparsevec on Postgres (JSON-in-TEXT on SQLite). It was
+	// previously a TEXT column; drop + re-add to convert in place. The semantic cache is
+	// ephemeral (entries re-populate continuously), so dropping the old JSON sparse data is
+	// safe — affected rows simply score dense-only until they refresh. Errors (e.g. column
+	// already the right type) are benign and ignored.
+	if vs.pg {
+		vs.db.Exec(`ALTER TABLE semantic_cache_vectors DROP COLUMN IF EXISTS sparse`) //nolint:errcheck
+	}
+	vs.db.Exec(`ALTER TABLE semantic_cache_vectors ADD COLUMN sparse ` + embedding.SparseColumnType(vs.pg)) //nolint:errcheck
 	return nil
 }
 
@@ -175,7 +178,7 @@ func (vs *VectorStore) warmLoad() {
 		vs.entries[hash] = &Entry{
 			CacheHash: hash,
 			Vector:    vec,
-			Sparse:    jsonToSparse(sparseJSON.String),
+			Sparse:    embedding.DecodeSparse(sparseJSON.String, vs.pg),
 			Provider:  provider,
 			Model:     model,
 			CreatedAt: time.Unix(createdAt, 0),
@@ -301,7 +304,7 @@ func (vs *VectorStore) searchPG(queryVec []float32, querySparse map[int32]float3
 	// Hybrid: fetch top-K dense neighbours, re-rank with sparse cosine.
 	const topK = 20
 	rows, err := vs.db.Query(`
-		SELECT cache_hash, 1 - (vector <=> ?) AS sim, sparse
+		SELECT cache_hash, 1 - (vector <=> ?) AS sim, `+embedding.SparseSelectExpr(vs.pg)+`
 		FROM semantic_cache_vectors
 		WHERE provider = ? AND model = ?
 		ORDER BY vector <=> ?
@@ -324,7 +327,7 @@ func (vs *VectorStore) searchPG(queryVec []float32, querySparse map[int32]float3
 			continue
 		}
 		score := denseSim
-		if es := jsonToSparse(sparseJSON.String); len(es) > 0 {
+		if es := embedding.DecodeSparse(sparseJSON.String, vs.pg); len(es) > 0 {
 			score = (1-sparseWeight)*denseSim + sparseWeight*sparseCosine(querySparse, es)
 		}
 		if score > bestSim {
@@ -403,7 +406,7 @@ func (vs *VectorStore) persistToDB(entry *Entry) {
 			sparse = excluded.sparse,
 			provider = excluded.provider,
 			model = excluded.model`,
-		entry.CacheHash, vecBytes, sparseToJSON(entry.Sparse), entry.Provider, entry.Model, entry.CreatedAt.Unix(),
+		entry.CacheHash, vecBytes, embedding.EncodeSparse(entry.Sparse, vs.pg), entry.Provider, entry.Model, entry.CreatedAt.Unix(),
 	)
 	if err != nil {
 		log.Printf("[VECTORSTORE] persist failed: %v", err)
@@ -420,7 +423,7 @@ func (vs *VectorStore) persistPG(cacheHash string, vector []float32, sparse map[
 			sparse = excluded.sparse,
 			provider = excluded.provider,
 			model = excluded.model`,
-		cacheHash, pgvector.NewVector(vector), sparseToJSON(sparse), provider, model, created.Unix(),
+		cacheHash, pgvector.NewVector(vector), embedding.EncodeSparse(sparse, vs.pg), provider, model, created.Unix(),
 	)
 	if err != nil {
 		log.Printf("[VECTORSTORE] pg persist failed: %v", err)
@@ -485,41 +488,8 @@ func sparseCosine(a, b map[int32]float32) float64 {
 	return dot / denom
 }
 
-// ── Sparse (de)serialization (stored as a JSON object of token-id -> weight) ──
-
-func sparseToJSON(s map[int32]float32) interface{} {
-	if len(s) == 0 {
-		return nil // store NULL for dense-only entries
-	}
-	m := make(map[string]float32, len(s))
-	for k, v := range s {
-		m[strconv.FormatInt(int64(k), 10)] = v
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return nil
-	}
-	return string(b)
-}
-
-func jsonToSparse(j string) map[int32]float32 {
-	if j == "" {
-		return nil
-	}
-	var m map[string]float32
-	if err := json.Unmarshal([]byte(j), &m); err != nil || len(m) == 0 {
-		return nil
-	}
-	out := make(map[int32]float32, len(m))
-	for k, v := range m {
-		id, err := strconv.ParseInt(k, 10, 32)
-		if err != nil {
-			continue
-		}
-		out[int32(id)] = v
-	}
-	return out
-}
+// Sparse (de)serialization lives in package embedding: EncodeSparse / DecodeSparse,
+// which store a native pgvector sparsevec on Postgres and JSON on SQLite.
 
 // ── Serialization helpers (SQLite BLOB) ─────────────────────────────────────
 

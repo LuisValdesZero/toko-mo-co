@@ -73,13 +73,24 @@ func TestSparseCosineAndRoundTrip(t *testing.T) {
 		t.Fatal("empty cosine = 0")
 	}
 
+	// SQLite path: JSON roundtrip.
 	sp := embedding.SparseVector{5: 0.5, 9: 0.25}
-	back := jsonToSparse(sparseToJSON(sp).(string))
+	back := embedding.DecodeSparse(embedding.EncodeSparse(sp, false).(string), false)
 	if back[5] != 0.5 || back[9] != 0.25 {
 		t.Fatalf("sparse JSON roundtrip mismatch: %v", back)
 	}
-	if sparseToJSON(nil) != nil {
+	if embedding.EncodeSparse(nil, false) != nil {
 		t.Fatal("nil sparse should serialize to nil (NULL column)")
+	}
+
+	// Postgres path: native sparsevec text form ({i+1:v,...}/dim) roundtrip.
+	pgVal := embedding.EncodeSparse(sp, true)
+	if pgVal == nil {
+		t.Fatal("pg sparse should encode to a sparsevec value")
+	}
+	// The pgvector SparseVector renders 1-based; DecodeSparse restores 0-based token ids.
+	if backPG := embedding.DecodeSparse("{6:0.5,10:0.25}/250002", true); backPG[5] != 0.5 || backPG[9] != 0.25 {
+		t.Fatalf("sparsevec roundtrip mismatch: %v", backPG)
 	}
 }
 
