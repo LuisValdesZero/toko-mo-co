@@ -1,26 +1,118 @@
 package rules
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
+	"tokomoco/nemoguardrails"
 	"tokomoco/store"
 
 	"github.com/gorilla/mux"
 )
 
+// GuardrailsPusher is the subset of the nemoguardrails client used to mirror
+// rail-authoring rules into the guardrails service (dual store). Satisfied by
+// *nemoguardrails.Client; an interface keeps the rules package testable.
+type GuardrailsPusher interface {
+	PutRule(ctx context.Context, rule nemoguardrails.RuleSpec) (nemoguardrails.RuleSpec, error)
+	DeleteRule(ctx context.Context, name string) error
+	ListRules(ctx context.Context) ([]nemoguardrails.RuleSpec, error)
+}
+
 // APIHandler provides REST endpoints for managing rules.
 // It wraps an Engine and calls Reload() after each mutating operation.
 type APIHandler struct {
-	engine *Engine
-	db     *store.DB // for hit count and request log queries on the requests table
+	engine     *Engine
+	db         *store.DB        // for hit count and request log queries on the requests table
+	guardrails GuardrailsPusher // optional; mirrors CondGuardrails authoring rules to the guardrails service
 }
 
 // NewAPIHandler creates an APIHandler bound to the given engine.
 func NewAPIHandler(engine *Engine, db *store.DB) *APIHandler {
 	return &APIHandler{engine: engine, db: db}
+}
+
+// SetGuardrails wires the guardrails control-plane client. A nil client disables
+// the push (rail-authoring fields are then stored on the proxy rule but not mirrored).
+func (h *APIHandler) SetGuardrails(g GuardrailsPusher) {
+	// A typed-nil *nemoguardrails.Client would be a non-nil interface; guard against it.
+	if c, ok := g.(*nemoguardrails.Client); ok && c == nil {
+		return
+	}
+	h.guardrails = g
+}
+
+// guardrailsRuleName is the stable name a proxy rule maps to in the guardrails
+// service. Keyed by the proxy rule ID so renames don't orphan the rail.
+func guardrailsRuleName(id int64) string { return fmt.Sprintf("tmc-%d", id) }
+
+// guardrailsSpec extracts the authored rail from a rule's CondGuardrails condition,
+// if any. ok=false means the rule authors no rail (pure verdict-consumer or non-guardrails).
+func guardrailsSpec(rule *Rule, id int64) (nemoguardrails.RuleSpec, bool) {
+	for _, c := range rule.Conditions {
+		if c.Type != CondGuardrails || c.RailType == "" || c.RailType == "none" {
+			continue
+		}
+		kind := c.RailKind
+		if kind != "output" {
+			kind = "input"
+		}
+		return nemoguardrails.RuleSpec{
+			Name:     guardrailsRuleName(id),
+			Kind:     kind,
+			RailType: c.RailType,
+			Params:   c.RailParams,
+			Colang:   c.Colang,
+			Enabled:  rule.Enabled,
+			Priority: rule.Priority,
+		}, true
+	}
+	return nemoguardrails.RuleSpec{}, false
+}
+
+// syncGuardrails mirrors a saved rule's authored rail into the guardrails service.
+// Best-effort: returns a short status string ("ok" / "removed" / "error: ...") for
+// the API response; it never fails the request (the proxy rule is already persisted).
+// When the rule authors no rail, any previously-pushed rail for this ID is removed
+// (idempotent), so editing a rule to drop its rail cleans up the guardrails side.
+func (h *APIHandler) syncGuardrails(rule *Rule, id int64) string {
+	if h.guardrails == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	spec, ok := guardrailsSpec(rule, id)
+	if !ok {
+		if err := h.guardrails.DeleteRule(ctx, guardrailsRuleName(id)); err != nil {
+			log.Printf("[RULES] guardrails cleanup for rule %d failed: %v", id, err)
+		}
+		return ""
+	}
+	if _, err := h.guardrails.PutRule(ctx, spec); err != nil {
+		log.Printf("[RULES] guardrails push for rule %d (%s) failed: %v", id, spec.Name, err)
+		return "error: " + err.Error()
+	}
+	log.Printf("[RULES] guardrails rail %s synced (rail_type=%s kind=%s enabled=%v)", spec.Name, spec.RailType, spec.Kind, spec.Enabled)
+	return "ok"
+}
+
+// deleteGuardrails removes a rule's authored rail from the guardrails service
+// (idempotent; a rule that never authored a rail is a no-op 404 swallowed by the client).
+func (h *APIHandler) deleteGuardrails(id int64) {
+	if h.guardrails == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := h.guardrails.DeleteRule(ctx, guardrailsRuleName(id)); err != nil {
+		log.Printf("[RULES] guardrails delete for rule %d failed: %v", id, err)
+	}
 }
 
 // RegisterRoutes attaches all CRUD endpoints to the router.
@@ -31,6 +123,7 @@ func (h *APIHandler) RegisterRoutes(r *mux.Router, authWrap func(http.HandlerFun
 	r.Handle("/api/rules", authWrap(h.Create)).Methods("POST")
 	r.Handle("/api/rules/hit-counts", authWrap(h.HitCounts)).Methods("GET")
 	r.Handle("/api/rules/templates", authWrap(h.Templates)).Methods("GET")
+	r.Handle("/api/rules/guardrails-rails", authWrap(h.GuardrailsRails)).Methods("GET")
 	r.Handle("/api/rules/from-template", authWrap(h.CreateFromTemplate)).Methods("POST")
 	r.Handle("/api/rules/{id:[0-9]+}", authWrap(h.Get)).Methods("GET")
 	r.Handle("/api/rules/{id:[0-9]+}", authWrap(h.Update)).Methods("PUT")
@@ -90,7 +183,11 @@ func (h *APIHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.engine.Reload()
-	respondJSON(w, http.StatusCreated, map[string]int64{"id": id})
+	resp := map[string]any{"id": id}
+	if s := h.syncGuardrails(&rule, id); s != "" {
+		resp["guardrails_push"] = s
+	}
+	respondJSON(w, http.StatusCreated, resp)
 }
 
 // Update replaces a rule's fields and triggers engine reload.
@@ -114,7 +211,11 @@ func (h *APIHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.engine.Reload()
-	respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	resp := map[string]string{"status": "updated"}
+	if s := h.syncGuardrails(&rule, id); s != "" {
+		resp["guardrails_push"] = s
+	}
+	respondJSON(w, http.StatusOK, resp)
 }
 
 // Delete removes a rule and triggers engine reload.
@@ -131,6 +232,7 @@ func (h *APIHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.engine.Reload()
+	h.deleteGuardrails(id) // remove any authored rail (idempotent)
 	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -156,6 +258,12 @@ func (h *APIHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.engine.Reload()
+	// Mirror the enabled/disabled state to any authored rail.
+	if h.guardrails != nil {
+		if r, err := h.engine.store.GetByID(id); err == nil && r != nil {
+			h.syncGuardrails(r, id)
+		}
+	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "toggled"})
 }
 
@@ -390,10 +498,33 @@ func (h *APIHandler) CreateFromTemplate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.engine.Reload()
-	respondJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":          id,
-		"template_id": tmpl.ID,
-	})
+	resp := map[string]interface{}{"id": id, "template_id": tmpl.ID}
+	if s := h.syncGuardrails(&rule, id); s != "" {
+		resp["guardrails_push"] = s
+	}
+	respondJSON(w, http.StatusCreated, resp)
+}
+
+// GuardrailsRails returns the compiled rails the guardrails service currently holds
+// (the read-only side of the dual store, for the dashboard's "Compiled rails" view).
+// GET /api/rules/guardrails-rails
+func (h *APIHandler) GuardrailsRails(w http.ResponseWriter, r *http.Request) {
+	if h.guardrails == nil {
+		respondJSON(w, http.StatusOK, map[string]any{"enabled": false, "rules": []any{}})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	railRules, err := h.guardrails.ListRules(ctx)
+	if err != nil {
+		log.Printf("[API] guardrails list rails: %v", err)
+		http.Error(w, "failed to reach guardrails service", http.StatusBadGateway)
+		return
+	}
+	if railRules == nil {
+		railRules = []nemoguardrails.RuleSpec{}
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"enabled": true, "rules": railRules})
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

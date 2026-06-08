@@ -179,6 +179,12 @@ function initRulesUI() {
         document.getElementById('templatePicker').style.display = 'none';
     });
 
+    // Compiled rails — read-only view of what the NeMo Guardrails service holds.
+    document.getElementById('showGuardrailsRailsBtn')?.addEventListener('click', toggleGuardrailsRails);
+    document.getElementById('closeGuardrailsRailsBtn')?.addEventListener('click', () => {
+        document.getElementById('guardrailsRailsPanel').style.display = 'none';
+    });
+
     // Scope selector — initialize custom dropdown and show/hide agent dropdown
     const scopeSelect = document.getElementById('ruleScope');
     if (scopeSelect) {
@@ -434,6 +440,7 @@ function addConditionRow(condition = null) {
         <option value="request_count">Request Count</option>
         <option value="prompt_content">Prompt Content</option>
         <option value="loop_detected">Loop Detected</option>
+        <option value="guardrails">NeMo Guardrails</option>
     `;
     const typeDropdown = createCustomDropdown(typeOptions, condition?.type || '', 'Select condition type', 'condition-type');
     typeDropdown.style.cssText = 'flex:0 0 180px;';
@@ -466,6 +473,7 @@ function updateConditionParams(selectElement, existingCondition = null) {
     if (!paramsDiv) return;
 
     paramsDiv.innerHTML = '';
+    paramsDiv.style.flexDirection = 'row'; // reset (guardrails switches to column)
 
     const stringTypes = ['agent_id', 'app_name', 'model', 'provider', 'prompt_content'];
     const numericTypes = ['input_tokens', 'cost_session', 'cost_daily', 'cost_monthly'];
@@ -626,6 +634,63 @@ function updateConditionParams(selectElement, existingCondition = null) {
     } else if (type === 'loop_detected') {
         // No parameters
         paramsDiv.innerHTML = '<span style="color:var(--text-muted);padding:8px;">No parameters</span>';
+
+    } else if (type === 'guardrails') {
+        // NeMo Guardrails: optionally match a verdict (violation_type) AND optionally
+        // author a Colang rail in the service itself (dual store). rail_type "none" =
+        // consume the verdict only (legacy behavior). The other types push a rail.
+        paramsDiv.style.flexDirection = 'column';
+        paramsDiv.style.gap = '8px';
+
+        const railType = existingCondition?.rail_type || 'none';
+        const railKind = existingCondition?.rail_kind || 'input';
+        const violation = existingCondition?.value || '';
+        let terms = '';
+        let pattern = '';
+        if (existingCondition?.rail_params) {
+            if (Array.isArray(existingCondition.rail_params.terms)) terms = existingCondition.rail_params.terms.join(', ');
+            if (typeof existingCondition.rail_params.pattern === 'string') pattern = existingCondition.rail_params.pattern;
+        }
+        let colang = existingCondition?.colang || '';
+
+        const opt = (v, label, cur) => `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
+        paramsDiv.innerHTML = `
+            <input class="param-value" placeholder="Verdict match: violation_type (blank = any blocked)" value="${escapeHtml(violation)}" style="width:100%;">
+            <div style="display:flex;gap:8px;">
+                <select class="gr-rail-type" style="flex:0 0 170px;">
+                    ${opt('none', 'Consume verdict only', railType)}
+                    ${opt('block_terms', 'Author: block terms', railType)}
+                    ${opt('block_regex', 'Author: block regex', railType)}
+                    ${opt('custom', 'Author: custom Colang', railType)}
+                </select>
+                <select class="gr-rail-kind" style="flex:0 0 120px;">
+                    ${opt('input', 'Input rail', railKind)}
+                    ${opt('output', 'Output rail', railKind)}
+                </select>
+            </div>
+            <div class="gr-rail-detail"></div>
+        `;
+
+        const railTypeSel = paramsDiv.querySelector('.gr-rail-type');
+        const detail = paramsDiv.querySelector('.gr-rail-detail');
+        const renderDetail = () => {
+            const rt = railTypeSel.value;
+            if (rt === 'block_terms') {
+                detail.innerHTML = `<input class="gr-terms" placeholder="Blocked terms (comma-separated)" value="${escapeHtml(terms)}" style="width:100%;">`;
+            } else if (rt === 'block_regex') {
+                detail.innerHTML = `<input class="gr-pattern" placeholder="Regex pattern, e.g. (?i)\\bpassword\\b" value="${escapeHtml(pattern)}" style="width:100%;">`;
+            } else if (rt === 'custom') {
+                detail.innerHTML = `<textarea class="gr-colang" rows="5" placeholder="define flow my_rail&#10;  ...Colang flow body..." style="width:100%;font-family:var(--font-mono);font-size:12px;">${escapeHtml(colang)}</textarea><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Raw Colang flow(s). The service validates + compiles before reload; a bad rail is rejected (422) and never breaks the running guard.</div>`;
+            } else {
+                detail.innerHTML = `<div style="font-size:11px;color:var(--text-muted);">No rail authored — this rule only acts on the guardrails service's verdict. Use the action below (e.g. Block) to enforce. Requires CONFIG_NEMOGUARDRAILS_URL.</div>`;
+            }
+            // Preserve typed values when toggling rail type.
+            const t = detail.querySelector('.gr-terms'); if (t) t.addEventListener('input', () => { terms = t.value; });
+            const p = detail.querySelector('.gr-pattern'); if (p) p.addEventListener('input', () => { pattern = p.value; });
+            const c = detail.querySelector('.gr-colang'); if (c) c.addEventListener('input', () => { colang = c.value; });
+        };
+        railTypeSel.addEventListener('change', renderDetail);
+        renderDetail();
     }
 }
 
@@ -792,6 +857,21 @@ function collectConditions() {
         } else if (type === 'request_count') {
             condition.threshold = parseFloat(row.querySelector('.param-threshold')?.value) || 0;
             condition.window_sec = parseInt(row.querySelector('.param-window')?.value) || 60;
+        } else if (type === 'guardrails') {
+            condition.value = row.querySelector('.param-value')?.value || '';
+            const rt = row.querySelector('.gr-rail-type')?.value || 'none';
+            if (rt && rt !== 'none') {
+                condition.rail_type = rt;
+                condition.rail_kind = row.querySelector('.gr-rail-kind')?.value || 'input';
+                if (rt === 'block_terms') {
+                    const raw = row.querySelector('.gr-terms')?.value || '';
+                    condition.rail_params = { terms: raw.split(',').map(s => s.trim()).filter(Boolean) };
+                } else if (rt === 'block_regex') {
+                    condition.rail_params = { pattern: row.querySelector('.gr-pattern')?.value || '' };
+                } else if (rt === 'custom') {
+                    condition.colang = row.querySelector('.gr-colang')?.value || '';
+                }
+            }
         }
 
         conditions.push(condition);
@@ -1052,6 +1132,66 @@ function useTemplate(templateId) {
 
     // Hide the template picker
     document.getElementById('templatePicker').style.display = 'none';
+}
+
+// ── Compiled rails (NeMo Guardrails service, read-only) ───────────────────────
+async function toggleGuardrailsRails() {
+    const panel = document.getElementById('guardrailsRailsPanel');
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        await loadGuardrailsRails();
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+async function loadGuardrailsRails() {
+    const list = document.getElementById('guardrailsRailsList');
+    if (!list) return;
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading…</div>';
+    try {
+        const res = await fetch('/api/rules/guardrails-rails');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        renderGuardrailsRails(await res.json());
+    } catch (err) {
+        console.error('Error loading compiled rails:', err);
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--red);">Failed to reach the guardrails service.</div>';
+    }
+}
+
+function renderGuardrailsRails(data) {
+    const list = document.getElementById('guardrailsRailsList');
+    if (!list) return;
+    if (!data || data.enabled === false) {
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">NeMo Guardrails is not configured (set CONFIG_NEMOGUARDRAILS_URL).</div>';
+        return;
+    }
+    const rules = data.rules || [];
+    if (rules.length === 0) {
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">No rails authored yet. Create a rule with a NeMo Guardrails condition and an authored rail.</div>';
+        return;
+    }
+    const rows = rules.map(r => {
+        let detail = '';
+        if (r.rail_type === 'block_terms' && r.params && Array.isArray(r.params.terms)) detail = 'terms: ' + r.params.terms.join(', ');
+        else if (r.rail_type === 'block_regex' && r.params && r.params.pattern) detail = 'pattern: ' + r.params.pattern;
+        else if (r.rail_type === 'custom') detail = (r.colang || '').split('\n')[0];
+        const en = r.enabled ? 'green' : 'muted';
+        return `
+            <tr style="opacity:${r.enabled ? 1 : 0.55};">
+                <td><div style="width:9px;height:9px;border-radius:50%;background:var(--${en});"></div></td>
+                <td style="font-weight:600;font-family:var(--font-mono);">${escapeHtml(r.name)}</td>
+                <td><span class="badge">${escapeHtml(r.kind || 'input')}</span></td>
+                <td><span class="badge">${escapeHtml((r.rail_type || '').replace('_', ' '))}</span></td>
+                <td style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${escapeHtml(detail)}</td>
+            </tr>`;
+    }).join('');
+    list.innerHTML = `
+        <table class="feed-table" style="font-size:13px;">
+            <thead><tr><th style="width:30px;"></th><th>Rail</th><th>Kind</th><th>Type</th><th>Detail</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
