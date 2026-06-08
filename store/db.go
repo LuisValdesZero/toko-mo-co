@@ -760,7 +760,7 @@ func (d *DB) AgentSummaries() ([]AgentSummary, error) {
 	rows, err := d.db.Query(`
 		SELECT
 			agent_id,
-			app_name,
+			MAX(app_name)      AS app_name,
 			SUM(CASE WHEN cache_hit = 0 THEN cost ELSE 0 END) AS total_cost,
 			SUM(input_tokens)  AS input_tokens,
 			SUM(output_tokens) AS output_tokens,
