@@ -1511,9 +1511,25 @@ function renderProviders() {
     container.innerHTML = providersList.map(renderProviderRow).join('');
 }
 
+// providerFamilyLabel derives a human family label from the provider's default model
+// (OpenRouter ids are <vendor>/<model>), shown on the card badge so each provider shows
+// its own name instead of the generic API format ("OPENAI").
+function providerFamilyLabel(p) {
+    const v = ((p.default_model || '').toLowerCase().split('/')[0]) || '';
+    if (v === 'openai') return 'OpenAI';
+    if (v === 'anthropic') return 'Anthropic';
+    if (v === 'google') return 'Google';
+    if (v === 'meta-llama' || v.includes('llama')) return 'Llama';
+    if (v.startsWith('qwen')) return 'Qwen';
+    if (v === 'deepseek') return 'DeepSeek';
+    return (p.api_format || '').toUpperCase();
+}
+
 function renderProviderRow(provider) {
-    const models = (provider.models || []).slice(0, 4);
-    const moreCount = (provider.models || []).length - 4;
+    // Don't repeat the default model in the chip list (it's already shown as "Default:").
+    const allModels = (provider.models || []).filter(m => m !== provider.default_model);
+    const models = allModels.slice(0, 4);
+    const moreCount = allModels.length - 4;
     const modelsStr = models.map(m => `<code style="font-size:11px;background:var(--bg-secondary);padding:1px 5px;border-radius:3px;">${escapeHtml(m)}</code>`).join(' ');
     const moreStr = moreCount > 0 ? `<span style="font-size:11px;color:var(--text-muted);"> +${moreCount} more</span>` : '';
 
@@ -1523,7 +1539,7 @@ function renderProviderRow(provider) {
                 <div class="fallback-config-chain" style="align-items:center;">
                     <span class="fallback-chain-source">${escapeHtml(provider.display_name || provider.name)}</span>
                     <code class="provider-url">${escapeHtml(provider.base_url)}</code>
-                    <span class="badge badge-muted" style="font-size:10px;">${provider.api_format}</span>
+                    <span class="badge badge-muted" style="font-size:10px;">${escapeHtml(providerFamilyLabel(provider))}</span>
                 </div>
                 <div class="fallback-config-actions">
                     <button class="btn-icon" onclick="testExistingProvider(${provider.id})" title="Test Connection">
