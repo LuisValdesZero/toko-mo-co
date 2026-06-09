@@ -25,53 +25,54 @@ func testProviderStore(t *testing.T) *ProviderStore {
 	return NewProviderStore(db.DB())
 }
 
-func TestSeedProviderFamilies(t *testing.T) {
+func TestSeedOpenRouter(t *testing.T) {
 	ps := testProviderStore(t)
 
-	n, err := ps.SeedProviderFamilies()
+	created, err := ps.SeedOpenRouter()
 	if err != nil {
-		t.Fatalf("SeedProviderFamilies: %v", err)
+		t.Fatalf("SeedOpenRouter: %v", err)
 	}
-	if n != 6 {
-		t.Fatalf("expected 6 providers seeded, got %d", n)
+	if !created {
+		t.Fatalf("expected openrouter provider created on first run")
 	}
 
-	// Idempotent — a second run creates none.
-	if n2, _ := ps.SeedProviderFamilies(); n2 != 0 {
-		t.Fatalf("re-seed should create 0, got %d", n2)
+	// Idempotent — a second run creates nothing.
+	if again, _ := ps.SeedOpenRouter(); again {
+		t.Fatalf("re-seed should not create the provider again")
 	}
 
 	all, err := ps.All()
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	byName := map[string]*CustomProvider{}
-	for _, p := range all {
-		byName[p.Name] = p
+	// Exactly one provider, named "openrouter" (not renamed to or-* families).
+	if len(all) != 1 || all[0].Name != "openrouter" {
+		t.Fatalf("want a single provider named openrouter, got %+v", all)
 	}
-	want := map[string]string{
-		"or-openai":    "openai/gpt-4o-mini",
-		"or-anthropic": "anthropic/claude-3.5-haiku",
-		"or-google":    "google/gemini-2.5-flash-lite",
-		"llama":        "meta-llama/llama-3.3-70b-instruct",
-		"qwen":         "qwen/qwen-2.5-7b-instruct",
-		"deepseek":     "deepseek/deepseek-chat",
+	p := all[0]
+	if p.BaseURL != "https://openrouter.ai/api" || p.AuthEnvVar != "OPENROUTER_API_KEY" || p.APIFormat != "openai" {
+		t.Fatalf("openrouter wrong base/auth/format: %+v", p)
 	}
-	for name, model := range want {
-		p := byName[name]
-		if p == nil {
-			t.Fatalf("missing seeded provider %q", name)
-		}
-		if p.DefaultModel != model {
-			t.Fatalf("%s default_model = %q, want %q", name, p.DefaultModel, model)
-		}
-		if p.BaseURL != "https://openrouter.ai/api" || p.AuthEnvVar != "OPENROUTER_API_KEY" || p.APIFormat != "openai" {
-			t.Fatalf("%s wrong base/auth/format: %+v", name, p)
-		}
-		// default_model must survive a Get round-trip too.
-		got, err := ps.Get(p.ID)
-		if err != nil || got.DefaultModel != model {
-			t.Fatalf("Get(%d) default_model round-trip: %v / %q", p.ID, err, got.DefaultModel)
+
+	// Model families are listed as models, ordered alphabetically by family.
+	wantModels := []string{
+		"anthropic/claude-3.5-haiku",
+		"deepseek/deepseek-chat",
+		"google/gemini-2.5-flash-lite",
+		"meta-llama/llama-3.3-70b-instruct",
+		"openai/gpt-4o-mini",
+		"qwen/qwen-2.5-7b-instruct",
+	}
+	got, err := ps.Get(p.ID)
+	if err != nil {
+		t.Fatalf("Get(%d): %v", p.ID, err)
+	}
+	if len(got.Models) != len(wantModels) {
+		t.Fatalf("models = %v, want %v", got.Models, wantModels)
+	}
+	for i, m := range wantModels {
+		if got.Models[i] != m {
+			t.Fatalf("models[%d] = %q, want %q (alphabetical by family)", i, got.Models[i], m)
 		}
 	}
 }

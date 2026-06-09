@@ -5,7 +5,7 @@ import "testing"
 func TestRedirectProvidersActionCompilesAndApplies(t *testing.T) {
 	act, err := compileAction(ActionSpec{
 		Type:              ActionRedirect,
-		RedirectProviders: []string{"or-openai", "deepseek"},
+		RedirectProviders: []string{"openrouter", "ollama"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("compileAction: %v", err)
@@ -14,7 +14,7 @@ func TestRedirectProvidersActionCompilesAndApplies(t *testing.T) {
 	if res.Action != ActionRedirect {
 		t.Fatalf("action = %v, want redirect", res.Action)
 	}
-	if len(res.RedirectProviders) != 2 || res.RedirectProviders[0] != "or-openai" || res.RedirectProviders[1] != "deepseek" {
+	if len(res.RedirectProviders) != 2 || res.RedirectProviders[0] != "openrouter" || res.RedirectProviders[1] != "ollama" {
 		t.Fatalf("redirect chain = %v", res.RedirectProviders)
 	}
 
