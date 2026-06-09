@@ -1508,7 +1508,10 @@ function renderProviders() {
         return;
     }
 
-    container.innerHTML = providersList.map(renderProviderRow).join('');
+    // Sort alphabetically by display name (falling back to the routing name).
+    const sorted = [...providersList].sort((a, b) =>
+        (a.display_name || a.name).toLowerCase().localeCompare((b.display_name || b.name).toLowerCase()));
+    container.innerHTML = sorted.map(renderProviderRow).join('');
 }
 
 // providerFamilyLabel derives a human family label from the provider's default model
