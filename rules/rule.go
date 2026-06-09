@@ -333,7 +333,7 @@ func BuiltinTemplates() []RuleTemplate {
 			Conditions:  []ConditionSpec{},
 			Action: ActionSpec{
 				Type:              ActionRedirect,
-				RedirectProviders: []string{"or-openai", "or-anthropic", "or-google"},
+				RedirectProviders: []string{"openrouter"},
 			},
 			Priority: 40,
 			Editable: []string{"redirect_providers", "scope_agent_id"},

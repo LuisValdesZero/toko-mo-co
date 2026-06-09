@@ -165,13 +165,15 @@ func main() {
 
 	// ── Custom Providers ───────────────────────────────────────────────────
 	providerStore := providers.NewProviderStore(db.DB())
-	// Seed OpenRouter-backed family providers (or-openai, or-anthropic, or-google,
-	// llama, qwen, deepseek) each with a cheap default model — these populate the
-	// redirect-failover chain in Provider-Failover rules.
-	if n, err := providerStore.SeedProviderFamilies(); err != nil {
-		log.Printf("[PROVIDERS] failed to seed provider families: %v", err)
-	} else if n > 0 {
-		log.Printf("[PROVIDERS] seeded %d OpenRouter family providers", n)
+	// Seed the single OpenRouter provider on first run. OpenRouter is the only
+	// provider; agents address models as "openrouter/<id>" (e.g. openrouter/openai/
+	// gpt-4o-mini). Model families are listed under it as models. The per-family
+	// providers (or-openai/or-anthropic/or-google/...) were retired — they broke the
+	// "openrouter/" prefix every agent emits.
+	if created, err := providerStore.SeedOpenRouter(); err != nil {
+		log.Printf("[PROVIDERS] failed to seed openrouter provider: %v", err)
+	} else if created {
+		log.Printf("[PROVIDERS] seeded openrouter provider")
 	}
 	providerAPI := providers.NewAPI(providerStore)
 	providerNames := providerStore.AllNames()

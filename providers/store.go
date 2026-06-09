@@ -36,19 +36,19 @@ var validFormats = map[string]bool{
 
 // CustomProvider represents a user-defined LLM provider endpoint.
 type CustomProvider struct {
-	ID          int64    `json:"id"`
-	Name        string   `json:"name"`         // routing key: "ollama", "deepseek"
-	DisplayName string   `json:"display_name"` // "Ollama (Local)"
-	BaseURL     string   `json:"base_url"`     // "http://localhost:11434"
-	APIFormat   string   `json:"api_format"`   // "openai" | "anthropic"
-	APIPath     string   `json:"api_path"`     // "/v1/chat/completions"
-	AuthHeader  string   `json:"auth_header"`  // raw auth header value (optional)
-	AuthEnvVar  string   `json:"auth_env_var"` // env var name for API key (optional)
-	Models      []string `json:"models"`       // known model names
-	DefaultModel string  `json:"default_model"` // model used when this provider is a redirect-failover target
-	Enabled     bool     `json:"enabled"`
-	CreatedAt   int64    `json:"created_at"`
-	UpdatedAt   int64    `json:"updated_at"`
+	ID           int64    `json:"id"`
+	Name         string   `json:"name"`          // routing key: "ollama", "deepseek"
+	DisplayName  string   `json:"display_name"`  // "Ollama (Local)"
+	BaseURL      string   `json:"base_url"`      // "http://localhost:11434"
+	APIFormat    string   `json:"api_format"`    // "openai" | "anthropic"
+	APIPath      string   `json:"api_path"`      // "/v1/chat/completions"
+	AuthHeader   string   `json:"auth_header"`   // raw auth header value (optional)
+	AuthEnvVar   string   `json:"auth_env_var"`  // env var name for API key (optional)
+	Models       []string `json:"models"`        // known model names
+	DefaultModel string   `json:"default_model"` // model used when this provider is a redirect-failover target
+	Enabled      bool     `json:"enabled"`
+	CreatedAt    int64    `json:"created_at"`
+	UpdatedAt    int64    `json:"updated_at"`
 }
 
 // UpstreamURL constructs the full URL for a request to this provider.
@@ -226,62 +226,23 @@ func (ps *ProviderStore) SeedOpenRouter() (bool, error) {
 		APIFormat:   "openai",
 		APIPath:     "/v1/chat/completions",
 		AuthEnvVar:  "OPENROUTER_API_KEY",
-		Models:      []string{},
-		Enabled:     true,
+		// One provider, addressed as openrouter/<id>. The model families live here as
+		// models (one cheap default per family), ordered alphabetically by family.
+		Models: []string{
+			"anthropic/claude-3.5-haiku",
+			"deepseek/deepseek-chat",
+			"google/gemini-2.5-flash-lite",
+			"meta-llama/llama-3.3-70b-instruct",
+			"openai/gpt-4o-mini",
+			"qwen/qwen-2.5-7b-instruct",
+		},
+		DefaultModel: "openai/gpt-4o-mini",
+		Enabled:      true,
 	}
 	if _, err := ps.Create(cp); err != nil {
 		return false, err
 	}
 	return true, nil
-}
-
-// SeedProviderFamilies registers ready-to-use OpenRouter-backed family providers on
-// first run, each with a cheap default model used as the redirect-failover target.
-// Names avoid the reserved built-ins (openai/anthropic/google), so the OpenAI/Anthropic/
-// Google families use the "or-" prefix; auth is the OPENROUTER_API_KEY env var. Idempotent
-// per-name. Returns the count created.
-func (ps *ProviderStore) SeedProviderFamilies() (int, error) {
-	existing, err := ps.All()
-	if err != nil {
-		return 0, err
-	}
-	have := make(map[string]bool, len(existing))
-	for _, cp := range existing {
-		have[cp.Name] = true
-	}
-
-	// Default models are valid OpenRouter ids in the gpt-4o-mini cheap/fast tier.
-	families := []struct{ name, display, model string }{
-		{"or-openai", "OpenAI (OpenRouter)", "openai/gpt-4o-mini"},
-		{"or-anthropic", "Anthropic (OpenRouter)", "anthropic/claude-3.5-haiku"},
-		{"or-google", "Google (OpenRouter)", "google/gemini-2.5-flash-lite"},
-		{"llama", "Llama (OpenRouter)", "meta-llama/llama-3.3-70b-instruct"},
-		{"qwen", "Qwen (OpenRouter)", "qwen/qwen-2.5-7b-instruct"},
-		{"deepseek", "DeepSeek (OpenRouter)", "deepseek/deepseek-chat"},
-	}
-
-	created := 0
-	for _, f := range families {
-		if have[f.name] {
-			continue // already present (possibly user-edited) — leave it alone
-		}
-		cp := &CustomProvider{
-			Name:         f.name,
-			DisplayName:  f.display,
-			BaseURL:      "https://openrouter.ai/api",
-			APIFormat:    "openai",
-			APIPath:      "/v1/chat/completions",
-			AuthEnvVar:   "OPENROUTER_API_KEY",
-			DefaultModel: f.model,
-			Enabled:      true,
-		}
-		if _, err := ps.Create(cp); err != nil {
-			log.Printf("[PROVIDERS] failed to seed family %q: %v", f.name, err)
-			continue
-		}
-		created++
-	}
-	return created, nil
 }
 
 // Update modifies an existing custom provider. Validates before update.
