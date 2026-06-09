@@ -52,8 +52,8 @@ func TestSeedProviderFamilies(t *testing.T) {
 	want := map[string]string{
 		"or-openai":    "openai/gpt-4o-mini",
 		"or-anthropic": "anthropic/claude-3.5-haiku",
-		"or-google":    "google/gemini-2.0-flash-001",
-		"llama":        "meta-llama/llama-3.1-8b-instruct",
+		"or-google":    "google/gemini-2.5-flash-lite",
+		"llama":        "meta-llama/llama-3.3-70b-instruct",
 		"qwen":         "qwen/qwen-2.5-7b-instruct",
 		"deepseek":     "deepseek/deepseek-chat",
 	}

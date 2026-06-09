@@ -165,13 +165,6 @@ func main() {
 
 	// ── Custom Providers ───────────────────────────────────────────────────
 	providerStore := providers.NewProviderStore(db.DB())
-	// Seed a ready-to-use OpenRouter provider on first run (set OPENROUTER_API_KEY
-	// to use it; call models as openrouter/<id>).
-	if seededOR, err := providerStore.SeedOpenRouter(); err != nil {
-		log.Printf("[PROVIDERS] failed to seed OpenRouter: %v", err)
-	} else if seededOR {
-		log.Printf("[PROVIDERS] seeded OpenRouter provider (set OPENROUTER_API_KEY, then use model openrouter/<id>)")
-	}
 	// Seed OpenRouter-backed family providers (or-openai, or-anthropic, or-google,
 	// llama, qwen, deepseek) each with a cheap default model — these populate the
 	// redirect-failover chain in Provider-Failover rules.

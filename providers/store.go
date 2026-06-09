@@ -250,11 +250,12 @@ func (ps *ProviderStore) SeedProviderFamilies() (int, error) {
 		have[cp.Name] = true
 	}
 
+	// Default models are valid OpenRouter ids in the gpt-4o-mini cheap/fast tier.
 	families := []struct{ name, display, model string }{
 		{"or-openai", "OpenAI (OpenRouter)", "openai/gpt-4o-mini"},
 		{"or-anthropic", "Anthropic (OpenRouter)", "anthropic/claude-3.5-haiku"},
-		{"or-google", "Google (OpenRouter)", "google/gemini-2.0-flash-001"},
-		{"llama", "Llama (OpenRouter)", "meta-llama/llama-3.1-8b-instruct"},
+		{"or-google", "Google (OpenRouter)", "google/gemini-2.5-flash-lite"},
+		{"llama", "Llama (OpenRouter)", "meta-llama/llama-3.3-70b-instruct"},
 		{"qwen", "Qwen (OpenRouter)", "qwen/qwen-2.5-7b-instruct"},
 		{"deepseek", "DeepSeek (OpenRouter)", "deepseek/deepseek-chat"},
 	}
@@ -271,7 +272,6 @@ func (ps *ProviderStore) SeedProviderFamilies() (int, error) {
 			APIFormat:    "openai",
 			APIPath:      "/v1/chat/completions",
 			AuthEnvVar:   "OPENROUTER_API_KEY",
-			Models:       []string{f.model},
 			DefaultModel: f.model,
 			Enabled:      true,
 		}
